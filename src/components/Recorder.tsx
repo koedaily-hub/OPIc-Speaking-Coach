@@ -8,7 +8,7 @@ interface RecorderProps {
   onAudioReady: (blob: Blob) => void;
   onRecordingStateChange: (recording: boolean) => void;
   disabled?: boolean;
-  recorderRef: React.RefObject<HTMLButtonElement>;
+  recorderRef: React.RefObject<HTMLButtonElement | null>;
 }
 
 export default function Recorder({
