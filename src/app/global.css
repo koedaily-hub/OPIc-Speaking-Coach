@@ -1,0 +1,10 @@
+:root {
+  --koe-green: #1BA672;
+  --koe-green-dark: #15895B;
+  --koe-green-light: #C8F3E0;
+  --koe-gray: #6B7280;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
