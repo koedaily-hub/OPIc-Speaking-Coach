@@ -1,12 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+
 interface Topic {
   id: string;
   name: string;
   emoji?: string;
 }
-
 
 interface TopicSelectorProps {
   value: string;
@@ -26,13 +26,11 @@ export default function TopicSelector({
 
   const selectedTopic = topics.find((t) => t.id === value);
 
-  const filteredTopics = topics
-    .filter((t) => t && t.id && t.name)
-    .filter((t) =>
-      t.name.toLowerCase().includes(query.toLowerCase())
-    );
+  const filteredTopics = topics.filter((t) =>
+    t.name.toLowerCase().includes(query.toLowerCase())
+  );
 
-  // Close dropdown when clicking outside
+  /** Close dropdown when clicking outside */
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (
@@ -43,7 +41,8 @@ export default function TopicSelector({
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    return () =>
+      document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const handleSelect = (id: string) => {
@@ -64,7 +63,8 @@ export default function TopicSelector({
         onClick={() => setOpen(!open)}
       >
         <span>
-          {selectedTopic?.emoji} {selectedTopic?.name}
+          {selectedTopic?.emoji && <span>{selectedTopic.emoji} </span>}
+          {selectedTopic?.name}
         </span>
 
         <span className="text-gray-500">▾</span>
@@ -73,7 +73,7 @@ export default function TopicSelector({
       {/* Dropdown Panel */}
       {open && (
         <div className="absolute z-50 w-full mt-2 bg-white border rounded-lg shadow-lg max-h-72 overflow-hidden">
-          {/* Search Box (only visible when dropdown opens) */}
+          {/* Search Box */}
           <div className="p-2 border-b">
             <input
               type="text"
@@ -85,7 +85,7 @@ export default function TopicSelector({
             />
           </div>
 
-          {/* Topic List */}
+          {/* List */}
           <ul className="max-h-60 overflow-y-auto">
             {filteredTopics.length === 0 && (
               <li className="p-3 text-gray-500 text-center">No topics found</li>
@@ -97,7 +97,7 @@ export default function TopicSelector({
                 className="p-3 hover:bg-indigo-50 cursor-pointer flex items-center gap-2"
                 onClick={() => handleSelect(t.id)}
               >
-                <span>{t.emoji}</span>
+                {t.emoji && <span>{t.emoji}</span>}
                 <span>{t.name}</span>
               </li>
             ))}

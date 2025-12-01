@@ -8,19 +8,39 @@ import Recorder from "@/components/Recorder";
 import FeedbackPanel from "@/components/FeedbackPanel";
 import TimerFrame from "@/components/TimerFrame";
 import oxfordData from "@/data/oxford3000_parsed.json";
+import korean5666 from "@/data/korean5666.json";
 
+// --------- KIỂU DỮ LIỆU CHO 2 BỘ TỪ ---------
+type EnglishWord = {
+  word: string;
+  pos: string;
+  level: string;
+};
+
+type KoreanWord = {
+  id: number;
+  word: string;
+  meaning: string;
+  pos: string;
+};
+
+const EN_WORDS = oxfordData as EnglishWord[];
+const KO_WORDS = korean5666 as KoreanWord[];
 
 export default function PracticePage() {
   // ==============================
   // STATE
   // ==============================
+  const [lang, setLang] = useState<"en" | "ko">("en");
+
   const [topic, setTopic] = useState(TOPICS[0].id);
   const [level, setLevel] = useState("");
   const [pos, setPos] = useState("");
+
   const [word, setWord] = useState("");
   const [ipa, setIpa] = useState("");
   const [posTag, setPosTag] = useState("");
-
+  const [meaning, setMeaning] = useState("");
 
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -30,20 +50,26 @@ export default function PracticePage() {
   const [resetSignal, setResetSignal] = useState(0);
 
   const [feedback, setFeedback] = useState<any>(null);
-
   const [speakingTime, setSpeakingTime] = useState(45);
 
-  async function getIPA(word: string): Promise<string> {
+  const recordButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  // ==============================
+  // IPA FUNCTION (EN ONLY)
+  // ==============================
+  async function getIPA(target: string): Promise<string> {
     try {
-      const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
+      const res = await fetch(
+        `https://api.dictionaryapi.dev/api/v2/entries/en/${target}`
+      );
       const data = await res.json();
 
-      const ipa =
+      const ipaText =
         data?.[0]?.phonetics?.find((p: any) => p.text)?.text ||
         data?.[0]?.phonetics?.[0]?.text ||
         "";
 
-      return ipa.replace(/\//g, ""); // bỏ dấu / nếu có → bạn tự thêm khi display
+      return ipaText.replace(/\//g, "");
     } catch {
       return "";
     }
@@ -60,41 +86,49 @@ export default function PracticePage() {
     conj: "Conjunction",
     exclam: "Exclamation",
     number: "Number",
-    modal: "Modal Verb"
+    modal: "Modal Verb",
   };
 
-  // NEW — dùng để gọi startRecording từ RandomWord
-  const recordButtonRef = useRef<HTMLButtonElement | null>(null);
-
   // ==============================
-  // RANDOM WORD
+  // RANDOM WORD (EN & KO)
   // ==============================
   const randomize = () => {
-    let list = oxfordData;
+    // ENGLISH
+    if (lang === "en") {
+      let list = EN_WORDS;
 
-    if (level) list = list.filter((i) => i.level === level);
-    if (pos) list = list.filter((i) => i.pos === pos);
+      if (level) list = list.filter((i) => i.level === level);
+      if (pos) list = list.filter((i) => i.pos === pos);
 
-    if (list.length === 0) return;
+      if (list.length === 0) return;
 
-    const picked = list[Math.floor(Math.random() * list.length)];
+      const picked = list[Math.floor(Math.random() * list.length)];
 
-    setWord(picked.word);
-    setPosTag(POS_MAP[picked.pos] || picked.pos);
+      setWord(picked.word);
+      setPosTag(POS_MAP[picked.pos] || picked.pos);
+      getIPA(picked.word).then(setIpa);
+      setMeaning("");
+    } else {
+      // KOREAN
+      const list = KO_WORDS;
+      if (list.length === 0) return;
 
-    getIPA(picked.word).then(setIpa);
+      const picked = list[Math.floor(Math.random() * list.length)];
 
+      setWord(picked.word);
+      setPosTag("Korean Word");
+      setIpa("");
+      setMeaning(picked.meaning);
+    }
+
+    // COMMON RESET CHO CẢ 2 NGÔN NGỮ
     setAudioBlob(null);
     setFeedback(null);
-
-    setHistory((h) => [...h, picked.word]);
-
+    setHistory((h) => [...h, word]);
     setResetSignal((n) => n + 1);
     setTimeUpSignal((n) => n + 1);
     setIsRecording(false);
   };
-
-
 
   // ==============================
   // TIMER FINISHED
@@ -105,16 +139,14 @@ export default function PracticePage() {
   };
 
   // ==============================
-  // RECORD
+  // RECORDING
   // ==============================
   const startRecording = () => {
-    setResetSignal(n => n + 1);
-    setTimeUpSignal(n => n + 1);
+    setResetSignal((n) => n + 1);
+    setTimeUpSignal((n) => n + 1);
     setIsRecording(true);
-
-    recordButtonRef.current?.click();   // ✔ 100% đúng
+    recordButtonRef.current?.click();
   };
-
 
   const recordAgain = () => {
     setAudioBlob(null);
@@ -130,12 +162,12 @@ export default function PracticePage() {
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${word}.wav`;
+    a.download = `${word || "recording"}.wav`;
     a.click();
   };
 
   // ==============================
-  // GET FEEDBACK
+  // FEEDBACK
   // ==============================
   const getFeedback = async () => {
     if (!audioBlob) return;
@@ -150,7 +182,7 @@ export default function PracticePage() {
   };
 
   // ==============================
-  // TOPIC LABEL UPPERCASE
+  // TOPIC LABEL
   // ==============================
   const topicLabel =
     TOPICS.find((t) => t.id === topic)?.name.toUpperCase() ?? "TOPIC";
@@ -159,59 +191,86 @@ export default function PracticePage() {
   // UI
   // ==============================
   return (
-    <div className="max-w-xl mx-auto py-10 px-4">
+    <div className="max-w-xl mx-auto py-10 px-4 relative">
+      {/* 🔥 LANGUAGE SWITCHER */}
+      <div className="absolute top-4 right-4 flex gap-2">
+        <button
+          onClick={() => setLang("en")}
+          className={`px-3 py-1 rounded-full text-sm font-semibold ${
+            lang === "en"
+              ? "bg-black text-white"
+              : "bg-gray-200 text-gray-700"
+          }`}
+        >
+          EN
+        </button>
+
+        <button
+          onClick={() => setLang("ko")}
+          className={`px-3 py-1 rounded-full text-sm font-semibold ${
+            lang === "ko"
+              ? "bg-black text-white"
+              : "bg-gray-200 text-gray-700"
+          }`}
+        >
+          KO
+        </button>
+      </div>
+
       <h1 className="text-2xl font-bold text-center">
         Random Word Speaking Challenge
       </h1>
 
-      {/* FILTER GRID */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-y-2 gap-x-3 mt-4">
-        <TopicSelector value={topic} onChange={setTopic} topics={TOPICS} />
+      {/* FILTER GRID — chỉ dùng cho EN */}
+      {lang === "en" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-y-2 gap-x-3 mt-4">
+          <TopicSelector value={topic} onChange={setTopic} topics={TOPICS} />
 
-        <div>
-          <label className="block mb-1 font-semibold">Speaking Time:</label>
-          <select
-            className="w-full border rounded-lg px-3 py-2 text-base"
-            value={speakingTime}
-            onChange={(e) => setSpeakingTime(Number(e.target.value))}
-            disabled={isRecording}
-          >
-            <option value={30}>30 seconds</option>
-            <option value={45}>45 seconds</option>
-            <option value={60}>60 seconds</option>
-            <option value={90}>90 seconds</option>
-          </select>
-        </div>
+          <div>
+            <label className="block mb-1 font-semibold">Speaking Time:</label>
+            <select
+              className="w-full border rounded-lg px-3 py-2 text-base"
+              value={speakingTime}
+              onChange={(e) => setSpeakingTime(Number(e.target.value))}
+              disabled={isRecording}
+            >
+              <option value={30}>30 seconds</option>
+              <option value={45}>45 seconds</option>
+              <option value={60}>60 seconds</option>
+              <option value={90}>90 seconds</option>
+            </select>
+          </div>
 
-        <div>
-          <label className="block mb-1 font-semibold">Choose Level:</label>
-          <select
-            className="w-full border rounded-lg px-3 py-2 text-base"
-            value={level}
-            onChange={(e) => setLevel(e.target.value)}
-          >
-            <option value="">Any Level</option>
-            <option value="A1">A1</option>
-            <option value="A2">A2</option>
-            <option value="B1">B1</option>
-            <option value="B2">B2</option>
-          </select>
-        </div>
+          <div>
+            <label className="block mb-1 font-semibold">Choose Level:</label>
+            <select
+              className="w-full border rounded-lg px-3 py-2 text-base"
+              value={level}
+              onChange={(e) => setLevel(e.target.value)}
+            >
+              <option value="">Any Level</option>
+              <option value="A1">A1</option>
+              <option value="A2">A2</option>
+              <option value="B1">B1</option>
+              <option value="B2">B2</option>
+            </select>
+          </div>
 
-        <div>
-          <label className="block mb-1 font-semibold">Part of Speech:</label>
-          <select
-            className="w-full border rounded-lg px-3 py-2 text-base"
-            value={pos}
-            onChange={(e) => setPos(e.target.value)}
-          >
-            <option value="">Any</option>
-            <option value="n">Noun</option>
-            <option value="v">Verb</option>
-            <option value="adj">Adjective</option>
-          </select>
+          <div>
+            <label className="block mb-1 font-semibold">Part of Speech:</label>
+            <select
+              className="w-full border rounded-lg px-3 py-2 text-base"
+              value={pos}
+              onChange={(e) => setPos(e.target.value)}
+            >
+              <option value="">Any</option>
+              <option value="n">Noun</option>
+              <option value="v">Verb</option>
+              <option value="adj">Adjective</option>
+            </select>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* RANDOM BUTTON */}
       <button
@@ -227,6 +286,8 @@ export default function PracticePage() {
           word={word}
           ipa={ipa}
           pos={posTag}
+          meaning={meaning}
+          lang={lang}
           topicLabel={topicLabel}
           duration={speakingTime}
           timer={
@@ -237,7 +298,7 @@ export default function PracticePage() {
               timeUpSignal={timeUpSignal}
             />
           }
-          isRecording={isRecording}   // ⭐ THÊM DÒNG NÀY
+          isRecording={isRecording}
           onRecord={startRecording}
           onRecordAgain={recordAgain}
           onDownload={downloadRecording}
@@ -263,16 +324,15 @@ export default function PracticePage() {
         </div>
       )}
 
-      {/* RECORDER HIDDEN BUTTON */}
+      {/* RECORDER — HIDDEN BUTTON */}
       <Recorder
-      disabled={!word}
-      timeUpSignal={timeUpSignal}
-      resetSignal={resetSignal}
-      onAudioReady={setAudioBlob}
-      onRecordingStateChange={setIsRecording}
-      recorderRef={recordButtonRef}     // ✔ Thêm dòng này
-    />
-
+        disabled={!word}
+        timeUpSignal={timeUpSignal}
+        resetSignal={resetSignal}
+        onAudioReady={setAudioBlob}
+        onRecordingStateChange={setIsRecording}
+        recorderRef={recordButtonRef}
+      />
 
       <FeedbackPanel result={feedback} />
     </div>
