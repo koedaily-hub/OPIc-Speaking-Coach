@@ -1,7 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import type { Topic } from "@/data/topics";
+interface Topic {
+  id: string;
+  name: string;
+  emoji?: string;
+}
+
 
 interface TopicSelectorProps {
   value: string;
