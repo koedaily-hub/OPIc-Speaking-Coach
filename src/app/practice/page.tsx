@@ -3,7 +3,7 @@
 import React, { useRef, useState } from "react";
 import TOPICS from "@/data/topics";
 import TopicSelector from "@/components/TopicSelector";
-import RandomWord from "../components/RandomWord";
+import RandomWord from "@/components/RandomWord";
 import Recorder from "@/components/Recorder";
 import FeedbackPanel from "@/components/FeedbackPanel";
 import TimerFrame from "@/components/TimerFrame";
