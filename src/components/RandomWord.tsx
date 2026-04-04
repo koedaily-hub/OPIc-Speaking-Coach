@@ -4,6 +4,7 @@ import React from "react";
 import {
   FiRotateCcw,
   FiMic,
+  FiSquare,
   FiDownload,
   FiMessageCircle
 } from "react-icons/fi";
@@ -15,10 +16,12 @@ interface RandomWordProps {
   meaning?: string;     // ⭐ NEW
   lang: "en" | "ko";    // ⭐ NEW
   isRecording?: boolean;
+  hasAudio?: boolean;
   topicLabel: string;
   duration: number;
   timer: React.ReactNode;
   onRecord: () => void;
+  onStop: () => void;
   onRecordAgain: () => void;
   onDownload: () => void;
   onFeedback: () => void;
@@ -31,10 +34,12 @@ export default function RandomWord({
   meaning,
   lang,
   isRecording,
+  hasAudio,
   topicLabel,
   duration,
   timer,
   onRecord,
+  onStop,
   onRecordAgain,
   onDownload,
   onFeedback
@@ -104,9 +109,9 @@ export default function RandomWord({
             <div className="relative group">
               <button
                 className="p-2 bg-red-500 text-white rounded-full shadow hover:bg-red-600"
-                onClick={onRecord}
+                onClick={isRecording ? onStop : onRecord}
               >
-                <FiMic size={10} />
+                {isRecording ? <FiSquare size={10} /> : <FiMic size={10} />}
               </button>
               <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2
                 opacity-0 group-hover:opacity-100 transition

@@ -9,10 +9,16 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_CHAT_MODEL = "llama-3.3-70b-versatile";
 const GROQ_STT_MODEL = "whisper-large-v3-turbo";
 
-const groq = new OpenAI({
-  apiKey: GROQ_API_KEY,
-  baseURL: "https://api.groq.com/openai/v1",
-});
+function getGroqClient() {
+  if (!GROQ_API_KEY) {
+    throw new Error("Missing GROQ_API_KEY in environment variables");
+  }
+
+  return new OpenAI({
+    apiKey: GROQ_API_KEY,
+    baseURL: "https://api.groq.com/openai/v1",
+  });
+}
 
 type TargetLevel = "IL" | "IM" | "IH" | "AL" | "Communication";
 type Lang = "en" | "ko";
@@ -70,9 +76,7 @@ function extractWords(stt: any): PronunciationCandidate[] {
 }
 
 async function callGroqJSON<T>(system: string, user: string): Promise<T> {
-  if (!GROQ_API_KEY) {
-    throw new Error("Missing GROQ_API_KEY in environment variables");
-  }
+  const groq = getGroqClient();
 
   const completion = await groq.chat.completions.create({
     model: GROQ_CHAT_MODEL,
@@ -122,6 +126,7 @@ export async function POST(req: Request) {
     const mime = audio.type || "audio/wav";
     const file = new File([audio], "audio.wav", { type: mime });
 
+    const groq = getGroqClient();
     const stt = await groq.audio.transcriptions.create({
       model: GROQ_STT_MODEL,
       file,
