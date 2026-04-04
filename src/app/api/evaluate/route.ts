@@ -1,4 +1,3 @@
-import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import topics from "@/data/topics.json";
 import { FAMOUS_QUOTES } from "@/data/famousQuotes";
@@ -8,17 +7,7 @@ export const runtime = "nodejs";
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_CHAT_MODEL = "llama-3.3-70b-versatile";
 const GROQ_STT_MODEL = "whisper-large-v3-turbo";
-
-function getGroqClient() {
-  if (!GROQ_API_KEY) {
-    throw new Error("Missing GROQ_API_KEY in environment variables");
-  }
-
-  return new OpenAI({
-    apiKey: GROQ_API_KEY,
-    baseURL: "https://api.groq.com/openai/v1",
-  });
-}
+const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 
 type TargetLevel = "IL" | "IM" | "IH" | "AL" | "Communication";
 type Lang = "en" | "ko";
@@ -76,19 +65,34 @@ function extractWords(stt: any): PronunciationCandidate[] {
 }
 
 async function callGroqJSON<T>(system: string, user: string): Promise<T> {
-  const groq = getGroqClient();
+  if (!GROQ_API_KEY) {
+    throw new Error("Missing GROQ_API_KEY in environment variables");
+  }
 
-  const completion = await groq.chat.completions.create({
-    model: GROQ_CHAT_MODEL,
-    temperature: 0.2,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
+  const res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: GROQ_CHAT_MODEL,
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    }),
   });
 
-  const text = completion.choices?.[0]?.message?.content;
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(`Groq chat error ${res.status}: ${detail}`);
+  }
+
+  const completion = await res.json();
+  const text = completion?.choices?.[0]?.message?.content;
   if (!text) {
     throw new Error("Groq returned empty response");
   }
@@ -126,14 +130,27 @@ export async function POST(req: Request) {
     const mime = audio.type || "audio/wav";
     const file = new File([audio], "audio.wav", { type: mime });
 
-    const groq = getGroqClient();
-    const stt = await groq.audio.transcriptions.create({
-      model: GROQ_STT_MODEL,
-      file,
-      language: lang === "ko" ? "ko" : "en",
-      response_format: "verbose_json",
-      timestamp_granularities: ["word"],
+    const sttForm = new FormData();
+    sttForm.append("model", GROQ_STT_MODEL);
+    sttForm.append("file", file);
+    sttForm.append("language", lang === "ko" ? "ko" : "en");
+    sttForm.append("response_format", "verbose_json");
+    sttForm.append("timestamp_granularities[]", "word");
+
+    const sttRes = await fetch(`${GROQ_BASE_URL}/audio/transcriptions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${GROQ_API_KEY}`,
+      },
+      body: sttForm,
     });
+
+    if (!sttRes.ok) {
+      const detail = await sttRes.text();
+      throw new Error(`Groq transcription error ${sttRes.status}: ${detail}`);
+    }
+
+    const stt = await sttRes.json();
 
     const transcript = String((stt as any)?.text || "").trim();
     const extractedWords = extractWords(stt);

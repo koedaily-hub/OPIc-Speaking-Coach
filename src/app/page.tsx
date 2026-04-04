@@ -32,6 +32,7 @@ type FeedbackResult = {
   wordCount: number;
   usedRandomWord: boolean;
   topicName?: string;
+  target?: TargetLevel;
   topic_relevance: {
     status: "on_topic" | "not_on_topic";
     reason: string;
@@ -66,7 +67,7 @@ export default function PracticePage() {
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [showToast, setShowToast] = useState(false);
-
+  const [isLoadingFeedback, setIsLoadingFeedback] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
 
   // ✅ Tooltip style giống RandomWord (đặt trong page.tsx để dùng cho History)
@@ -237,6 +238,7 @@ export default function PracticePage() {
   // RECORDING
   // ==============================
   const startRecording = () => {
+    setFeedback(null);
     setResetSignal((n) => n + 1);
     setTimeUpSignal((n) => n + 1);
     setIsRecording(true);
@@ -245,6 +247,7 @@ export default function PracticePage() {
 
   const recordAgain = () => {
     setAudioBlob(null);
+    setFeedback(null);
     startRecording();
   };
 
@@ -269,16 +272,18 @@ export default function PracticePage() {
   // ==============================
   // FEEDBACK
   // ==============================
-  const getFeedback = async () => {
-    if (!audioBlob) return;
+const getFeedback = async () => {
+  if (!audioBlob || isLoadingFeedback) return;
 
+  setIsLoadingFeedback(true);
+
+  try {
     const fd = new FormData();
     fd.append("audio", audioBlob);
     fd.append("word", word);
     fd.append("topic", topic);
     fd.append("lang", lang);
     fd.append("target", target);
-
     fd.append("mode", "full");
 
     const res = await fetch("/api/evaluate", { method: "POST", body: fd });
@@ -295,7 +300,10 @@ export default function PracticePage() {
         .getElementById("ai-feedback-section")
         ?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 50);
-  };
+  } finally {
+    setIsLoadingFeedback(false);
+  }
+};
 
   // ==============================
   // TOPIC LABEL
@@ -316,10 +324,7 @@ export default function PracticePage() {
             resetSession();
           }}
           className={`px-3 py-1 rounded-full text-sm font-semibold ${
-            lang === "en"
-            
-              ? "bg-black text-white"
-              : "bg-gray-200 text-gray-700"
+            lang === "en" ? "bg-black text-white" : "bg-gray-200 text-gray-700"
           }`}
         >
           EN
@@ -539,7 +544,9 @@ export default function PracticePage() {
         recorderRef={recordButtonRef}
       />
 
-      <FeedbackPanel result={feedback} />
+      <div id="ai-feedback-section" className="mt-6">
+        <FeedbackPanel result={feedback} />
+      </div>
 
       {/* TOAST */}
       {showToast && (
