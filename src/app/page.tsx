@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import topics from "@/data/topics.json";
 import TopicSelector from "@/components/TopicSelector";
 import RandomWord from "@/components/RandomWord";
@@ -9,7 +9,13 @@ import FeedbackPanel from "@/components/FeedbackPanel";
 import TimerFrame from "@/components/TimerFrame";
 import oxfordData from "@/data/oxford3000_parsed.json";
 import korean5666 from "@/data/korean5666.json";
-import { FiX, FiCopy, FiTrash2 } from "react-icons/fi";
+import { FiX, FiCopy, FiTrash2, FiThumbsUp, FiThumbsDown } from "react-icons/fi";
+import { getOrCreateSessionId } from "@/lib/session-id";
+import {
+  sendFeedbackReaction,
+  sendIssueReport,
+  sendUsageEvent,
+} from "@/lib/client-analytics";
 
 // --------- KIỂU DỮ LIỆU CHO 2 BỘ TỪ ---------
 type EnglishWord = {
@@ -28,6 +34,7 @@ type KoreanWord = {
 type TargetLevel = "IL" | "IM" | "IH" | "AL" | "Communication";
 
 type FeedbackResult = {
+  feedbackEventId?: string | null;
   transcript: string;
   wordCount: number;
   usedRandomWord: boolean;
@@ -45,17 +52,55 @@ type FeedbackResult = {
   encouragement: { quote: string; author: string };
 };
 
+type HistoryStatus = "skipped" | "recorded" | "reviewed";
+
+type HistoryItem = {
+  token: number;
+  id: string;
+  word: string;
+  status: HistoryStatus;
+  createdAt: number;
+  feedback?: FeedbackResult;
+};
+
+type FeedbackVote = "like" | "dislike" | null;
+
+type FeedbackCollectionState = {
+  vote: FeedbackVote;
+  reasons: string[];
+  otherText: string;
+  submitted: boolean;
+};
+
+type ReportType = "bug" | "feature_request" | "ai_quality";
+
+type ReportFormState = {
+  type: ReportType;
+  email: string;
+  content: string;
+  submitted: boolean;
+};
+
+const NOT_HELPFUL_REASONS = [
+  "Too generic",
+  "Incorrect correction",
+  "Transcript sounds unnatural",
+  "Topic fit is inaccurate",
+  "Other",
+];
+
 const EN_WORDS = oxfordData as EnglishWord[];
 const KO_WORDS = korean5666 as KoreanWord[];
+const DEFAULT_TOPIC_ID = topics.find((t) => t.id === "hobbies")?.id ?? topics[0].id;
 
 export default function PracticePage() {
   // ==============================
   // STATE
   // ==============================
   const [lang, setLang] = useState<"en" | "ko">("en");
-  const [target, setTarget] = useState<TargetLevel>("IM");
+  const [target, setTarget] = useState<TargetLevel>("Communication");
 
-  const [topic, setTopic] = useState(topics[0].id);
+  const [topic, setTopic] = useState(DEFAULT_TOPIC_ID);
   const [level, setLevel] = useState("");
   const [pos, setPos] = useState("");
 
@@ -68,7 +113,19 @@ export default function PracticePage() {
   const [isRecording, setIsRecording] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [isLoadingFeedback, setIsLoadingFeedback] = useState(false);
-  const [history, setHistory] = useState<string[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [activeReviewedToken, setActiveReviewedToken] = useState<number | null>(null);
+  const [currentWordToken, setCurrentWordToken] = useState(0);
+  const [feedbackCollectionByToken, setFeedbackCollectionByToken] = useState<
+    Record<number, FeedbackCollectionState>
+  >({});
+  const [sessionId, setSessionId] = useState("");
+  const [reportForm, setReportForm] = useState<ReportFormState>({
+    type: "bug",
+    email: "",
+    content: "",
+    submitted: false,
+  });
 
   // ✅ Tooltip style giống RandomWord (đặt trong page.tsx để dùng cho History)
   const tooltipBase =
@@ -78,12 +135,30 @@ export default function PracticePage() {
     setHistory((h) => h.filter((_, i) => i !== index));
   };
 
+  const addSkippedIfNeeded = (prevWord: string, prevToken: number, hadAudio: boolean) => {
+    if (!prevWord || prevToken === 0 || hadAudio) return;
+    setHistory((h) => [
+      ...h,
+      {
+        token: prevToken,
+        id: `h-${prevToken}`,
+        word: prevWord,
+        status: "skipped",
+        createdAt: Date.now(),
+      },
+    ]);
+  };
+
   const clearHistory = () => setHistory([]);
 
   const copyHistory = async () => {
-    if (history.length === 0) return;
+    const completedWords = history
+      .filter((item) => item.status === "recorded" || item.status === "reviewed")
+      .map((item) => item.word);
 
-    const text = history.join(", ");
+    if (completedWords.length === 0) return;
+
+    const text = completedWords.join(", ");
     try {
       await navigator.clipboard.writeText(text);
     } catch {
@@ -104,9 +179,45 @@ export default function PracticePage() {
   const [resetSignal, setResetSignal] = useState(0);
 
   const [feedback, setFeedback] = useState<FeedbackResult | null>(null);
-  const [speakingTime, setSpeakingTime] = useState(45);
+  const [speakingTime, setSpeakingTime] = useState(30);
+
+  const labelClass = "mb-1.5 block text-sm font-medium text-slate-700";
+  const selectClass =
+    "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm transition focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-50 disabled:text-slate-400";
+  const cardClass = "rounded-2xl border border-slate-200 bg-white shadow-sm";
 
   const recordButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "auto" });
+    setSessionId(getOrCreateSessionId());
+  }, []);
+
+  const logUsageEvent = async (
+    eventName:
+      | "record_finished"
+      | "ai_feedback_requested"
+      | "ai_feedback_received"
+      | "feedback_helpful"
+      | "feedback_not_helpful"
+      | "report_issue_submitted",
+    metadata?: Record<string, unknown>
+  ) => {
+    if (!sessionId) return;
+
+    try {
+      await sendUsageEvent({
+        sessionId,
+        eventName,
+        word: word || undefined,
+        topic,
+        target,
+        metadata,
+      });
+    } catch (error) {
+      console.error("[analytics] usage event failed", eventName, error);
+    }
+  };
 
   const resetSession = () => {
     // 🔹 word + content
@@ -132,6 +243,9 @@ export default function PracticePage() {
 
     // 🔹 history 
     setHistory([]);
+    setActiveReviewedToken(null);
+    setCurrentWordToken(0);
+    setFeedbackCollectionByToken({});
   };
 
 
@@ -181,6 +295,13 @@ export default function PracticePage() {
   // RANDOM WORD (EN & KO)
   // ==============================
   const randomize = () => {
+    const prevWord = word;
+    const prevToken = currentWordToken;
+    const hadAudio = !!audioBlob;
+    const nextToken = Date.now();
+
+    addSkippedIfNeeded(prevWord, prevToken, hadAudio);
+
     if (lang === "en") {
       let list = EN_WORDS;
 
@@ -201,9 +322,6 @@ export default function PracticePage() {
       setPosTag(POS_MAP[picked.pos] || picked.pos);
       getIPA(picked.word).then(setIpa);
       setMeaning("");
-
-      // ✅ lưu history đúng
-      setHistory((h) => [...h, picked.word]);
     } else {
       const list = KO_WORDS;
       if (list.length === 0) return;
@@ -214,11 +332,10 @@ export default function PracticePage() {
       setPosTag("Korean Word");
       setIpa("");
       setMeaning(picked.meaning);
-
-      // ✅ lưu history đúng
-      setHistory((h) => [...h, picked.word]);
     }
 
+    setCurrentWordToken(nextToken);
+    setActiveReviewedToken(null);
     setAudioBlob(null);
     setFeedback(null);
     setResetSignal((n) => n + 1);
@@ -238,6 +355,7 @@ export default function PracticePage() {
   // RECORDING
   // ==============================
   const startRecording = () => {
+    if (!canRecord) return;
     setFeedback(null);
     setResetSignal((n) => n + 1);
     setTimeUpSignal((n) => n + 1);
@@ -246,12 +364,17 @@ export default function PracticePage() {
   };
 
   const recordAgain = () => {
+    if (!canRecordAgain) return;
     setAudioBlob(null);
     setFeedback(null);
-    startRecording();
+    setResetSignal((n) => n + 1);
+    setTimeUpSignal((n) => n + 1);
+    setIsRecording(true);
+    recordButtonRef.current?.click();
   };
 
   const stopRecording = () => {
+    if (!canStop) return;
     recordButtonRef.current?.click(); // ⛔ stop recorder
     setIsRecording(false);
   };
@@ -260,6 +383,7 @@ export default function PracticePage() {
   // DOWNLOAD
   // ==============================
   const downloadRecording = () => {
+    if (!canDownload) return;
     if (!audioBlob) return;
     const url = URL.createObjectURL(audioBlob);
 
@@ -273,11 +397,16 @@ export default function PracticePage() {
   // FEEDBACK
   // ==============================
 const getFeedback = async () => {
+  if (!canFeedback) return;
   if (!audioBlob || isLoadingFeedback) return;
 
   setIsLoadingFeedback(true);
 
   try {
+    logUsageEvent("ai_feedback_requested", {
+      currentWordToken,
+    });
+
     const fd = new FormData();
     fd.append("audio", audioBlob);
     fd.append("word", word);
@@ -285,6 +414,9 @@ const getFeedback = async () => {
     fd.append("lang", lang);
     fd.append("target", target);
     fd.append("mode", "full");
+    if (sessionId) {
+      fd.append("sessionId", sessionId);
+    }
 
     const res = await fetch("/api/evaluate", { method: "POST", body: fd });
     const data = await res.json();
@@ -294,6 +426,37 @@ const getFeedback = async () => {
       return;
     }
 
+    setHistory((prev) => {
+      const idx = prev.findIndex((item) => item.token === currentWordToken);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = {
+          ...next[idx],
+          status: "reviewed",
+          feedback: data,
+          createdAt: Date.now(),
+        };
+        return next;
+      }
+
+      return [
+        ...prev,
+        {
+          token: currentWordToken,
+          id: `h-${currentWordToken}`,
+          word,
+          status: "reviewed",
+          createdAt: Date.now(),
+          feedback: data,
+        },
+      ];
+    });
+
+    setActiveReviewedToken(currentWordToken);
+    setFeedbackCollectionByToken((prev) => ({
+      ...prev,
+      [currentWordToken]: { vote: null, reasons: [], otherText: "", submitted: false },
+    }));
     setFeedback(data);
     setTimeout(() => {
       document
@@ -311,20 +474,229 @@ const getFeedback = async () => {
   const topicLabel =
     topics.find((t) => t.id === topic)?.name.toUpperCase() ?? "TOPIC";
 
+  const hasWord = !!word;
+  const hasCompletedRecording = !!audioBlob && !isRecording;
+  const canRecord = hasWord && !isRecording && !audioBlob;
+  const canStop = hasWord && isRecording;
+  const canUseAudioActions = hasCompletedRecording;
+  const canRecordAgain = canUseAudioActions;
+  const canDownload = canUseAudioActions;
+  const canFeedback = canUseAudioActions && !isLoadingFeedback;
+
+  const completedHistoryCount = history.filter(
+    (item) => item.status === "recorded" || item.status === "reviewed"
+  ).length;
+
+  const restoreFeedbackFromHistory = (entry: HistoryItem) => {
+    if (!entry.feedback) return;
+    setFeedback(entry.feedback);
+    setActiveReviewedToken(entry.token);
+    setTimeout(() => {
+      document
+        .getElementById("ai-feedback-section")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  };
+
+  const handleAudioReady = (blob: Blob | null) => {
+    setAudioBlob(blob);
+    if (blob) {
+      logUsageEvent("record_finished", { currentWordToken });
+
+      setHistory((prev) => {
+        const idx = prev.findIndex((item) => item.token === currentWordToken);
+        if (idx >= 0) {
+          const next = [...prev];
+          const existing = next[idx];
+          next[idx] = {
+            ...existing,
+            status: existing.status === "reviewed" ? "reviewed" : "recorded",
+            createdAt: Date.now(),
+          };
+          return next;
+        }
+
+        if (!word) return prev;
+        return [
+          ...prev,
+          {
+            token: currentWordToken,
+            id: `h-${currentWordToken}`,
+            word,
+            status: "recorded",
+            createdAt: Date.now(),
+          },
+        ];
+      });
+    }
+  };
+
+  const activeFeedbackCollection: FeedbackCollectionState =
+    activeReviewedToken !== null
+      ? feedbackCollectionByToken[activeReviewedToken] ?? { vote: null, reasons: [], otherText: "", submitted: false }
+      : { vote: null, reasons: [], otherText: "", submitted: false };
+
+  const activeFeedbackEventId =
+    activeReviewedToken !== null
+      ? history.find((entry) => entry.token === activeReviewedToken)?.feedback?.feedbackEventId ?? null
+      : null;
+
+  const handleVoteSelect = (value: Exclude<FeedbackVote, null>) => {
+    if (activeReviewedToken === null) return;
+
+    if (value === "like") {
+      if (sessionId && activeFeedbackEventId) {
+        sendFeedbackReaction({
+          feedbackEventId: activeFeedbackEventId,
+          sessionId,
+          helpful: true,
+        }).catch((error) => {
+          console.error("[analytics] feedback like failed", error);
+        });
+      }
+    }
+
+    setFeedbackCollectionByToken((prev) => ({
+      ...prev,
+      [activeReviewedToken]: {
+        vote: value,
+        reasons: value === "like" ? [] : prev[activeReviewedToken]?.reasons ?? [],
+        otherText: value === "like" ? "" : prev[activeReviewedToken]?.otherText ?? "",
+        submitted: value === "like",
+      },
+    }));
+  };
+
+  const toggleNotHelpfulReason = (reason: string) => {
+    if (activeReviewedToken === null) return;
+    setFeedbackCollectionByToken((prev) => {
+      const current = prev[activeReviewedToken] ?? { vote: "dislike" as const, reasons: [], otherText: "", submitted: false };
+      const hasReason = current.reasons.includes(reason);
+      return {
+        ...prev,
+        [activeReviewedToken]: {
+          vote: "dislike",
+          reasons: hasReason
+            ? current.reasons.filter((r) => r !== reason)
+            : [...current.reasons, reason],
+          otherText: reason === "Other" && hasReason ? "" : current.otherText,
+          submitted: false,
+        },
+      };
+    });
+  };
+
+  const handleOtherReasonTextChange = (text: string) => {
+    if (activeReviewedToken === null) return;
+    setFeedbackCollectionByToken((prev) => {
+      const current = prev[activeReviewedToken] ?? { vote: "dislike" as const, reasons: ["Other"], otherText: "", submitted: false };
+      return {
+        ...prev,
+        [activeReviewedToken]: {
+          ...current,
+          vote: "dislike",
+          submitted: false,
+          otherText: text,
+        },
+      };
+    });
+  };
+
+  const submitDislikeFeedback = () => {
+    if (activeReviewedToken === null) return;
+    const hasOther = activeFeedbackCollection.reasons.includes("Other");
+    const validOtherText = activeFeedbackCollection.otherText.trim().length > 0;
+    if (!activeFeedbackCollection.reasons.length) return;
+    if (hasOther && !validOtherText) return;
+
+    if (sessionId && activeFeedbackEventId) {
+      const reasonText = hasOther
+        ? activeFeedbackCollection.reasons
+            .filter((reason) => reason !== "Other")
+            .concat(activeFeedbackCollection.otherText.trim())
+            .join(" | ")
+        : activeFeedbackCollection.reasons.join(" | ");
+
+      sendFeedbackReaction({
+        feedbackEventId: activeFeedbackEventId,
+        sessionId,
+        helpful: false,
+        reason: reasonText,
+      }).catch((error) => {
+        console.error("[analytics] feedback dislike failed", error);
+      });
+    }
+
+    setFeedbackCollectionByToken((prev) => ({
+      ...prev,
+      [activeReviewedToken]: {
+        ...activeFeedbackCollection,
+        submitted: true,
+      },
+    }));
+  };
+
+  const submitReportIssue = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = reportForm.content.trim();
+    if (!trimmed) return;
+
+    if (sessionId) {
+      try {
+        await sendIssueReport({
+          sessionId,
+          type: reportForm.type,
+          message: trimmed,
+          page: window.location.pathname,
+          context: {
+            lang,
+            topic,
+            target,
+            word,
+            activeReviewedToken,
+            feedbackEventId: activeFeedbackEventId,
+          },
+          email: reportForm.email.trim() || undefined,
+        });
+      } catch (error) {
+        console.error("[analytics] report issue failed", error);
+      }
+    }
+
+    setReportForm((prev) => ({
+      ...prev,
+      email: prev.email.trim(),
+      content: "",
+      submitted: true,
+    }));
+
+    window.setTimeout(() => {
+      setReportForm((prev) => ({ ...prev, submitted: false }));
+    }, 1800);
+  };
+
   // ==============================
   // UI
   // ==============================
   return (
-    <div className="max-w-xl mx-auto py-10 px-4 relative">
+    <div className="relative mx-auto max-w-3xl overflow-hidden px-4 py-8 sm:py-10">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10 opacity-40"
+        style={{
+          backgroundImage:
+            "radial-gradient(26% 18% at 12% 10%, rgba(16,185,129,0.10) 0%, rgba(16,185,129,0) 75%), radial-gradient(24% 18% at 85% 18%, rgba(52,211,153,0.08) 0%, rgba(52,211,153,0) 72%), radial-gradient(28% 20% at 78% 72%, rgba(16,185,129,0.07) 0%, rgba(16,185,129,0) 74%), radial-gradient(20% 15% at 22% 75%, rgba(74,222,128,0.06) 0%, rgba(74,222,128,0) 70%)",
+        }}
+      />
       {/* 🔥 LANGUAGE SWITCHER */}
-      <div className="absolute top-4 right-4 flex gap-2">
+      <div className="absolute right-4 top-4 flex gap-2">
         <button
           onClick={() => {
             setLang("en");
             resetSession();
           }}
-          className={`px-3 py-1 rounded-full text-sm font-semibold ${
-            lang === "en" ? "bg-black text-white" : "bg-gray-200 text-gray-700"
+          className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+            lang === "en" ? "bg-slate-900 text-white" : "bg-slate-200 text-slate-700"
           }`}
         >
           EN
@@ -335,43 +707,50 @@ const getFeedback = async () => {
           setLang("ko");
           resetSession();
         }}
-          className={`px-3 py-1 rounded-full text-sm font-semibold ${
+          className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
             lang === "ko"
-              ? "bg-black text-white"
-              : "bg-gray-200 text-gray-700"
+              ? "bg-slate-900 text-white"
+              : "bg-slate-200 text-slate-700"
           }`}
         >
           KO
         </button>
       </div>
 
-      <h1 className="text-2xl font-bold text-center">
-        Improve Your Reflex With Random Word Speaking Challenge
-      </h1>
+      <div className="mb-6 text-center sm:mb-7">
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
+          Train Your Speaking Reflex
+        </h1>
+        <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+          Practice quickly, stay on topic, and get calm, actionable AI feedback after each recording.
+        </p>
+      </div>
+
+      <div className={`${cardClass} p-4 sm:p-5`}>
       {/* FILTER GRID — dùng cho cả EN & KO */}
-      <div className="mt-4">
-      <label className="block mb-1 font-semibold">Target OPIc:</label>
+      <div>
+      <label className={labelClass}>Target</label>
       <select
-        className="w-full border rounded-lg px-3 py-2 text-base"
+        className={selectClass}
         value={target}
         onChange={(e) => setTarget(e.target.value as TargetLevel)}
         disabled={isRecording}
       >
         <option value="Communication">Communication</option>
-        <option value="IL">IL</option>
-        <option value="IM">IM</option>
-        <option value="IH">IH</option>
-        <option value="AL">AL</option>
+        <option value="IL">OPIc IL Level</option>
+        <option value="IM">OPIc IM Level</option>
+        <option value="IH">OPIc IH Level</option>
+        <option value="AL">OPIc AL Level</option>
       </select>
     </div>
 
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-y-2 gap-x-3 mt-4">
+    <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
       <TopicSelector value={topic} onChange={setTopic} topics={topics} />
 
       <div>
-        <label className="block mb-1 font-semibold">Speaking Time:</label>
+        <label className={labelClass}>Speaking Time</label>
         <select
-          className="w-full border rounded-lg px-3 py-2 text-base"
+          className={selectClass}
           value={speakingTime}
           onChange={(e) => setSpeakingTime(Number(e.target.value))}
           disabled={isRecording}
@@ -380,6 +759,10 @@ const getFeedback = async () => {
           <option value={45}>45 seconds</option>
           <option value={60}>60 seconds</option>
           <option value={90}>90 seconds</option>
+          <option value={120}>2 minutes</option>
+          <option value={180}>3 minutes</option>
+          <option value={300}>5 minutes</option>
+          <option value={600}>10 minutes</option>
         </select>
       </div>
 
@@ -389,9 +772,9 @@ const getFeedback = async () => {
       {lang === "en" && (
         <>
           <div>
-            <label className="block mb-1 font-semibold">Choose Level:</label>
+            <label className={labelClass}>Choose Level</label>
             <select
-              className="w-full border rounded-lg px-3 py-2 text-base"
+              className={selectClass}
               value={level}
               onChange={(e) => setLevel(e.target.value)}
               disabled={isRecording}
@@ -405,9 +788,9 @@ const getFeedback = async () => {
           </div>
 
           <div>
-            <label className="block mb-1 font-semibold">Part of Speech:</label>
+            <label className={labelClass}>Part of Speech</label>
             <select
-              className="w-full border rounded-lg px-3 py-2 text-base"
+              className={selectClass}
               value={pos}
               onChange={(e) => setPos(e.target.value)}
               disabled={isRecording}
@@ -425,14 +808,15 @@ const getFeedback = async () => {
       </div>
       {/* RANDOM BUTTON */}
       <button
-        className="mt-6 w-full px-4 py-3 bg-[var(--koe-green)] hover:bg-[var(--koe-green-dark)] text-white rounded-lg font-bold"
+        className="mt-5 w-full rounded-xl bg-[var(--koe-green)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[var(--koe-green-dark)]"
         onClick={randomize}
       >
         RANDOM WORD
       </button>
+      </div>
 
       {/* RANDOM WORD BOX */}
-      <div className="relative mt-8">
+      <div className="relative mt-6">
         <RandomWord
           word={word}
           ipa={ipa}
@@ -456,13 +840,18 @@ const getFeedback = async () => {
           onRecordAgain={recordAgain}
           onDownload={downloadRecording}
           onFeedback={getFeedback}
+          canRecord={canRecord}
+          canStop={canStop}
+          canRecordAgain={canRecordAgain}
+          canDownload={canDownload}
+          canFeedback={canFeedback}
         />
       </div>
 
       {/* HISTORY */}
-      <div className="mt-6 p-4 border rounded-lg bg-gray-50">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="font-semibold text-lg">Words Practiced</h2>
+      <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm sm:p-5">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-slate-900">Words Practiced</h2>
 
           {/* ✅ ICON ONLY + TOOLTIP */}
           <div className="flex gap-2">
@@ -470,12 +859,12 @@ const getFeedback = async () => {
             <div className="relative group">
               <button
                 onClick={copyHistory}
-                disabled={history.length === 0}
+                disabled={completedHistoryCount === 0}
                 className={[
-                  "p-2 border rounded-md transition",
-                  history.length === 0
-                    ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                    : "bg-white hover:bg-gray-100 text-gray-700",
+                  "rounded-lg border p-2 text-sm transition",
+                  completedHistoryCount === 0
+                    ? "cursor-not-allowed bg-slate-100 text-slate-400"
+                    : "bg-white text-slate-700 hover:bg-slate-100",
                 ].join(" ")}
                 type="button"
                 aria-label="Copy all"
@@ -491,10 +880,10 @@ const getFeedback = async () => {
                 onClick={clearHistory}
                 disabled={history.length === 0}
                 className={[
-                  "p-2 border rounded-md transition",
+                  "rounded-lg border p-2 text-sm transition",
                   history.length === 0
-                    ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                    : "bg-white hover:bg-gray-100 text-gray-700",
+                    ? "cursor-not-allowed bg-slate-100 text-slate-400"
+                    : "bg-white text-slate-700 hover:bg-slate-100",
                 ].join(" ")}
                 type="button"
                 aria-label="Clear all"
@@ -507,22 +896,44 @@ const getFeedback = async () => {
         </div>
 
         {history.length === 0 ? (
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-slate-500">
             No words yet. Click RANDOM WORD to start.
           </p>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {history.map((w, i) => (
+            {history.map((item, i) => (
               <span
-                key={`${w}-${i}`}
-                className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-100 text-green-800 text-sm"
+                key={`${item.word}-${i}`}
+                className={[
+                  "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm",
+                  item.status === "reviewed"
+                    ? "border-emerald-200 bg-emerald-100 text-emerald-900"
+                    : item.status === "recorded"
+                    ? "border-emerald-100 bg-emerald-50/60 text-emerald-800"
+                    : item.status === "skipped"
+                    ? "border-slate-200 bg-slate-100 text-slate-600"
+                    : "border-slate-200 bg-white text-slate-700",
+                  item.status === "reviewed" && activeReviewedToken === item.token
+                    ? "ring-2 ring-emerald-200"
+                    : "",
+                ].join(" ")}
               >
-                {w}
+                {item.status === "reviewed" && item.feedback ? (
+                  <button
+                    type="button"
+                    onClick={() => restoreFeedbackFromHistory(item)}
+                    className="font-medium hover:underline"
+                  >
+                    {item.word}
+                  </button>
+                ) : (
+                  <span>{item.word}</span>
+                )}
 
                 {/* REMOVE ONE */}
                 <button
                   onClick={() => removeHistoryItem(i)}
-                  className="text-green-900/60 hover:text-green-900"
+                  className="text-emerald-800/60 transition hover:text-emerald-900"
                   title="Remove"
                   type="button"
                 >
@@ -539,14 +950,206 @@ const getFeedback = async () => {
         disabled={!word}
         timeUpSignal={timeUpSignal}
         resetSignal={resetSignal}
-        onAudioReady={setAudioBlob}
+        onAudioReady={handleAudioReady}
         onRecordingStateChange={setIsRecording}
         recorderRef={recordButtonRef}
       />
 
       <div id="ai-feedback-section" className="mt-6">
-        <FeedbackPanel result={feedback} />
+        <FeedbackPanel
+          result={feedback}
+          suggestionsFooter={
+            feedback ? (
+              <>
+                <div className="mt-1 flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleVoteSelect("like")}
+                    className={[
+                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition",
+                      activeFeedbackCollection.vote === "like"
+                        ? "border-emerald-300 bg-emerald-100 text-emerald-800"
+                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100",
+                    ].join(" ")}
+                  >
+                    <FiThumbsUp className="text-sm" />
+                    Like
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleVoteSelect("dislike")}
+                    className={[
+                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition",
+                      activeFeedbackCollection.vote === "dislike"
+                        ? "border-amber-300 bg-amber-100 text-amber-800"
+                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100",
+                    ].join(" ")}
+                  >
+                    <FiThumbsDown className="text-sm" />
+                    Dislike
+                  </button>
+                </div>
+
+                {activeFeedbackCollection.vote === "like" && (
+                  <p className="mt-2 text-sm text-emerald-700">Thanks! We’ll keep improving feedback quality.</p>
+                )}
+
+                {activeFeedbackCollection.vote === "dislike" && (
+                  <div className="mt-3">
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                      Why was it not helpful? (Select one or more)
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {NOT_HELPFUL_REASONS.map((reason) => {
+                        const selected = activeFeedbackCollection.reasons.includes(reason);
+                        return (
+                          <button
+                            key={reason}
+                            type="button"
+                            onClick={() => toggleNotHelpfulReason(reason)}
+                            className={[
+                              "rounded-full border px-3 py-1.5 text-sm transition",
+                              selected
+                                ? "border-amber-300 bg-amber-100 text-amber-800"
+                                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100",
+                            ].join(" ")}
+                          >
+                            {reason}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {activeFeedbackCollection.reasons.includes("Other") && (
+                      <textarea
+                        value={activeFeedbackCollection.otherText}
+                        onChange={(e) => handleOtherReasonTextChange(e.target.value)}
+                        rows={2}
+                        placeholder="Tell us more..."
+                        className="mt-3 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                      />
+                    )}
+
+                    <div className="mt-3 flex items-center justify-end gap-3">
+                      <button
+                        type="button"
+                        onClick={submitDislikeFeedback}
+                        disabled={
+                          !activeFeedbackCollection.reasons.length ||
+                          (activeFeedbackCollection.reasons.includes("Other") &&
+                            !activeFeedbackCollection.otherText.trim())
+                        }
+                        className={[
+                          "rounded-lg px-3 py-2 text-sm font-medium transition",
+                          activeFeedbackCollection.reasons.length &&
+                          (!activeFeedbackCollection.reasons.includes("Other") ||
+                            !!activeFeedbackCollection.otherText.trim())
+                            ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                            : "cursor-not-allowed bg-slate-200 text-slate-400",
+                        ].join(" ")}
+                      >
+                        Submit feedback
+                      </button>
+                    </div>
+                    {activeFeedbackCollection.submitted && (
+                      <p className="mt-2 text-right text-sm text-emerald-700">Thanks for sharing your feedback.</p>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : undefined
+          }
+        />
       </div>
+
+      <section className="mt-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+        <h4 className="text-sm font-semibold text-slate-800">Report issue / Feedback</h4>
+        <p className="mt-1 text-xs text-slate-500">Optional: Leave your email to get early updates and a launch discount when paid plans go live.</p>
+
+        <form onSubmit={submitReportIssue} className="mt-3 space-y-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Type</label>
+            <select
+              value={reportForm.type}
+              onChange={(e) =>
+                setReportForm((prev) => ({
+                  ...prev,
+                  type: e.target.value as ReportType,
+                  submitted: false,
+                }))
+              }
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+            >
+              <option value="bug">Bug</option>
+              <option value="feature_request">Feature request</option>
+              <option value="ai_quality">AI quality feedback</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Email (optional)</label>
+            <input
+              type="email"
+              value={reportForm.email}
+              onChange={(e) =>
+                setReportForm((prev) => ({
+                  ...prev,
+                  email: e.target.value,
+                  submitted: false,
+                }))
+              }
+              placeholder="you@example.com"
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Details</label>
+            <textarea
+              value={reportForm.content}
+              onChange={(e) =>
+                setReportForm((prev) => ({
+                  ...prev,
+                  content: e.target.value,
+                  submitted: false,
+                }))
+              }
+              rows={3}
+              placeholder="Share your issue or suggestion..."
+              className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="submit"
+              disabled={!reportForm.content.trim()}
+              className={[
+                "rounded-lg px-3 py-2 text-sm font-medium transition",
+                reportForm.content.trim()
+                  ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                  : "cursor-not-allowed bg-slate-200 text-slate-400",
+              ].join(" ")}
+            >
+              Submit
+            </button>
+
+            {reportForm.submitted && <p className="text-sm text-emerald-700">Submitted. Thank you!</p>}
+          </div>
+        </form>
+      </section>
+
+      {feedback?.encouragement?.quote && (
+        <section className="mt-10 border-t border-slate-100 pt-8 sm:pt-10">
+          <blockquote className="mx-auto max-w-2xl">
+            <p className="text-center text-xl italic leading-8 text-emerald-700 sm:text-2xl sm:leading-10">
+              “{feedback.encouragement.quote}”
+            </p>
+            <footer className="mt-4 text-center text-sm text-slate-500">— {feedback.encouragement.author}</footer>
+          </blockquote>
+        </section>
+      )}
 
       {/* TOAST */}
       {showToast && (

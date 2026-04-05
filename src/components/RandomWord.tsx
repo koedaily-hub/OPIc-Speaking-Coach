@@ -6,15 +6,15 @@ import {
   FiMic,
   FiSquare,
   FiDownload,
-  FiMessageCircle
+  FiMessageCircle,
 } from "react-icons/fi";
 
 interface RandomWordProps {
   word: string;
   ipa?: string;
   pos?: string;
-  meaning?: string;     // ⭐ NEW
-  lang: "en" | "ko";    // ⭐ NEW
+  meaning?: string;
+  lang: "en" | "ko";
   isRecording?: boolean;
   hasAudio?: boolean;
   topicLabel: string;
@@ -25,6 +25,53 @@ interface RandomWordProps {
   onRecordAgain: () => void;
   onDownload: () => void;
   onFeedback: () => void;
+  canRecord: boolean;
+  canStop: boolean;
+  canRecordAgain: boolean;
+  canDownload: boolean;
+  canFeedback: boolean;
+}
+
+type ActionButtonProps = {
+  onClick: () => void;
+  disabled: boolean;
+  label: string;
+  className: string;
+  children: React.ReactNode;
+};
+
+function ActionButton({
+  onClick,
+  disabled,
+  label,
+  className,
+  children,
+}: ActionButtonProps) {
+  return (
+    <div className="relative group">
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={label}
+        className={[
+          "inline-flex h-12 w-12 items-center justify-center rounded-full shadow-sm transition",
+          disabled
+            ? "cursor-not-allowed bg-slate-200 text-slate-400"
+            : className,
+        ].join(" ")}
+      >
+        {children}
+      </button>
+      <span
+        className="pointer-events-none absolute left-1/2 top-full z-10 mt-2 -translate-x-1/2
+        whitespace-nowrap rounded bg-black px-2 py-1 text-xs text-white opacity-0
+        transition group-hover:opacity-100"
+      >
+        {label}
+      </span>
+    </div>
+  );
 }
 
 export default function RandomWord({
@@ -33,8 +80,8 @@ export default function RandomWord({
   pos,
   meaning,
   lang,
-  isRecording,
-  hasAudio,
+  isRecording = false,
+  hasAudio = false,
   topicLabel,
   duration,
   timer,
@@ -42,131 +89,103 @@ export default function RandomWord({
   onStop,
   onRecordAgain,
   onDownload,
-  onFeedback
+  onFeedback,
+  canRecord,
+  canStop,
+  canRecordAgain,
+  canDownload,
+  canFeedback,
 }: RandomWordProps) {
+  const helperText =
+    lang === "en"
+      ? `Talk about your hobbies using the word below in ${duration} seconds.`
+      : `Use the word below naturally while speaking about yourself for ${duration} seconds.`;
 
   return (
     <div className="mt-4">
-
-      {/* ⭐ DESCRIPTION — Varies by language */}
       {word && (
-        <p className="text-center text-gray-700 text-sm mb-4 px-4 leading-relaxed">
-          {lang === "en" ? (
-            <>
-              Share one personal detail about <strong>YOURSELF</strong> related to{" "}
-              <strong>{topicLabel}</strong>, and include the random word below within{" "}
-              <strong>{duration} seconds</strong>.
-            </>
-          ) : (
-            <>
-              아래의 단어를 반드시 포함해서 <strong>{duration}초</strong> 동안{" "}
-              <strong>나에 대한 이야기</strong>를 자연스럽게 말해보세요.
-            </>
-          )}
-        </p>
+        <div className="mb-5 rounded-2xl bg-emerald-50 px-4 py-3 text-center text-lg font-medium text-slate-800">
+          {helperText}
+        </div>
       )}
 
-      {/* ⭐ RANDOM WORD BOX */}
-      <div className="relative p-6 border rounded-xl shadow bg-white text-center">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+          {isRecording && (
+            <div className="mb-3 flex items-center justify-center gap-2">
+              <span className="h-3 w-3 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-sm font-semibold text-red-600">Recording…</span>
+            </div>
+          )}
 
-        {/* Timer */}
-        {timer}
+          <div className="flex min-h-[140px] flex-col items-center justify-center">
+            <div className="text-5xl font-bold tracking-tight text-slate-900">
+              {word || "—"}
+            </div>
 
-        {/* ⭐ RECORDING INDICATOR */}
-        {isRecording && (
-          <div className="absolute top-3 left-3 flex items-center gap-2">
-            <span className="w-3 h-3 bg-red-600 rounded-full animate-ping"></span>
-            <span className="text-xs text-red-600 font-semibold">Recording…</span>
+            {(ipa || pos) && lang === "en" && (
+              <div className="mt-1 flex items-center justify-center gap-2 text-sm text-slate-500">
+                {ipa && <span className="font-mono text-lg text-slate-700">/{ipa}/</span>}
+                {ipa && pos && <span className="text-slate-300">|</span>}
+                {pos && (
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                    {pos}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {lang === "ko" && meaning && (
+              <div className="mt-1 text-sm leading-6 text-slate-600">{meaning}</div>
+            )}
           </div>
-        )}
 
-        {/* WORD */}
-        <div className="text-4xl font-bold mt-6 text-gray-900">
-          {word || "—"}
+          {word && (
+            <div className="mt-8 flex items-center justify-center gap-4">
+              <ActionButton
+                onClick={isRecording ? onStop : onRecord}
+                disabled={isRecording ? !canStop : !canRecord}
+                label={isRecording ? "Stop Recording" : "Start Recording"}
+                className="bg-red-500 text-white hover:bg-red-600"
+              >
+                {isRecording ? <FiSquare size={20} /> : <FiMic size={20} />}
+              </ActionButton>
+
+              <ActionButton
+                onClick={onRecordAgain}
+                disabled={!canRecordAgain}
+                label="Record Again"
+                className="bg-amber-400 text-white hover:bg-amber-500"
+              >
+                <FiRotateCcw size={20} />
+              </ActionButton>
+
+              <ActionButton
+                onClick={onDownload}
+                disabled={!canDownload}
+                label="Download Recording"
+                className="bg-slate-700 text-white hover:bg-slate-800"
+              >
+                <FiDownload size={20} />
+              </ActionButton>
+
+              <ActionButton
+                onClick={onFeedback}
+                disabled={!canFeedback}
+                label="Get AI Feedback"
+                className="bg-emerald-600 text-white hover:bg-emerald-700"
+              >
+                <FiMessageCircle size={20} />
+              </ActionButton>
+            </div>
+          )}
         </div>
 
-        {/* IPA + POS (English only) */}
-        {(ipa || pos) && lang === "en" && (
-          <div className="flex items-center justify-center gap-2 text-gray-600 text-sm mt-2">
-            {ipa && <span className="font-mono text-base">/{ipa}/</span>}
-            {ipa && pos && <span className="text-gray-400">|</span>}
-            {pos && <span className="uppercase tracking-wide text-xs text-gray-500">{pos}</span>}
+        <div className="relative rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex min-h-[180px] items-center justify-center">
+            {timer}
           </div>
-        )}
-
-        {/* ⭐ MEANING for Korean Words */}
-        {lang === "ko" && meaning && (
-          <div className="mt-2 text-gray-700 text-sm leading-relaxed">
-            {meaning}
-          </div>
-        )}
-
-        {/* ⭐ ICON BUTTONS */}
-        {word && (
-          <div className="absolute right-3 top-1 flex flex-col gap-1">
-
-            {/* RECORD */}
-            <div className="relative group">
-              <button
-                className="p-2 bg-red-500 text-white rounded-full shadow hover:bg-red-600"
-                onClick={isRecording ? onStop : onRecord}
-              >
-                {isRecording ? <FiSquare size={10} /> : <FiMic size={10} />}
-              </button>
-              <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2
-                opacity-0 group-hover:opacity-100 transition
-                bg-black text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-                Start Recording
-              </span>
-            </div>
-
-            {/* RECORD AGAIN */}
-            <div className="relative group">
-              <button
-                className="p-2 bg-yellow-400 text-white rounded-full shadow hover:bg-yellow-500"
-                onClick={onRecordAgain}
-              >
-                <FiRotateCcw size={10} />
-              </button>
-              <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2
-                opacity-0 group-hover:opacity-100 transition
-                bg-black text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-                Record Again
-              </span>
-            </div>
-
-            {/* DOWNLOAD */}
-            <div className="relative group">
-              <button
-                className="p-2 bg-gray-700 text-white rounded-full shadow hover:bg-gray-800"
-                onClick={onDownload}
-              >
-                <FiDownload size={10} />
-              </button>
-              <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2
-                opacity-0 group-hover:opacity-100 transition
-                bg-black text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-                Download Recording
-              </span>
-            </div>
-
-            {/* AI FEEDBACK */}
-            <div className="relative group">
-              <button
-                className="p-2 bg-green-600 text-white rounded-full shadow hover:bg-green-700"
-                onClick={onFeedback}
-              >
-                <FiMessageCircle size={10} />
-              </button>
-              <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2
-                opacity-0 group-hover:opacity-100 transition
-                bg-black text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-                Get AI Feedback
-              </span>
-            </div>
-
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );

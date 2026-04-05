@@ -38,20 +38,18 @@ export default function TimerFrame({
 
   return (
     <div
-      className={`absolute inset-0 border-4 rounded-xl pointer-events-none ${
-        timeLeft <= 3 && active
-          ? "animate-pulse border-red-500"
-          : "border-emerald-500"
+      className={`absolute inset-0 rounded-xl border-2 pointer-events-none ${
+        timeLeft <= 3 && active ? "border-rose-300" : "border-slate-300"
       }`}
     >
-      {/* Bubble thời gian */}
       <div
-        className="
-          absolute -top-4 left-4 bg-white border border-gray-300
-          text-xs px-3 py-0.5 rounded-full shadow z-10
-        "
+        className="absolute inset-0 flex items-center justify-center"
       >
-        {timeLeft}s
+        <div className="rounded-xl bg-white/90 px-8 py-6 text-center">
+          <p className="text-5xl font-semibold tabular-nums tracking-tight text-slate-800 sm:text-6xl">
+            {timeLeft}
+          </p>
+        </div>
       </div>
     </div>
   );

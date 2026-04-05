@@ -27,72 +27,201 @@ interface FeedbackResult {
 
 interface FeedbackPanelProps {
   result: FeedbackResult | null;
+  suggestionsFooter?: React.ReactNode;
 }
 
-export default function FeedbackPanel({ result }: FeedbackPanelProps) {
+export default function FeedbackPanel({
+  result,
+  suggestionsFooter,
+}: FeedbackPanelProps) {
   if (!result) return null;
 
   const isOnTopic = result.topic_relevance?.status === "on_topic";
+  const suggestions = result.opic_assessment?.improvement_points || [];
+  const expressionFixes = result.expression_fixes || [];
+  const [isCopied, setIsCopied] = React.useState(false);
+
+  const handleCopySuggestedAnswer = React.useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(result.suggested_transcript || "");
+      setIsCopied(true);
+      window.setTimeout(() => setIsCopied(false), 1200);
+    } catch {
+      setIsCopied(false);
+    }
+  }, [result.suggested_transcript]);
 
   return (
-    <div id="ai-feedback-section" className="mt-6 p-5 bg-white rounded-xl shadow border border-gray-200">
-      <h3 className="text-lg font-bold mb-2 text-gray-800">AI Feedback</h3>
+    <div id="ai-feedback-section" className="mt-6">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <h3 className="mb-5 text-lg font-semibold tracking-tight text-slate-900">
+          AI Feedback
+        </h3>
 
-      <div className="mb-3">
-        <p className="font-semibold text-gray-900 mb-1">Transcript:</p>
-        <p className="text-gray-700">{result.transcript || "(empty)"}</p>
-      </div>
+        <div className="space-y-5">
+          <section>
+            <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Quick summary
+            </h4>
 
-      <div className="mb-3 text-sm text-gray-700 space-y-1">
-        <p className="font-semibold text-gray-900 mb-1">General</p>
-        <p>Total words spoken: {result.wordCount}</p>
-        <p>
-          Random word used: {result.usedRandomWord ? "Yes ✅" : "No ❌"}
-        </p>
-        <p>
-          Topic fit ({result.topicName || "selected topic"}):{" "}
-          <span className={isOnTopic ? "text-green-700 font-semibold" : "text-red-700 font-semibold"}>
-            {isOnTopic ? "On topic" : "Not on topic"}
-          </span>
-        </p>
-        <p className="text-gray-600">{result.topic_relevance?.reason}</p>
-      </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-center">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Total words
+                </p>
+                <p className="mt-1 text-lg font-semibold text-slate-800">
+                  {result.wordCount}
+                </p>
+              </div>
 
-      <div className="mb-3">
-        <p className="font-semibold text-red-600 mb-1">Expression fixes:</p>
-        {result.expression_fixes?.length ? (
-          <ul className="list-disc pl-5 text-gray-800 space-y-1">
-            {result.expression_fixes.map((fix, idx) => (
-              <li key={`${fix.original}-${idx}`}>
-                <span className="line-through text-red-500">{fix.original}</span>
-                {" → "}
-                <span className="text-green-700">{fix.suggested}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-gray-500">No major expression issues found.</p>
-        )}
-      </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-center">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Random word used
+                </p>
+                <p className="mt-1 text-lg font-semibold text-slate-800">
+                  {result.usedRandomWord ? "Yes" : "No"}
+                </p>
+              </div>
 
-      <div className="mb-3 p-3 rounded-lg bg-slate-50 border border-slate-200">
-        <p className="font-semibold text-slate-800 mb-2">How to improve for OPIc</p>
-        <ul className="list-disc pl-5 text-sm text-slate-700">
-          {(result.opic_assessment?.improvement_points || []).map((s, i) => (
-            <li key={`imp-${i}`}>{s}</li>
-          ))}
-        </ul>
-      </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-center">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Topic fit
+                </p>
+                <p className="mt-1 text-lg font-semibold text-slate-800">
+                  {isOnTopic ? "On topic" : "Needs alignment"}
+                </p>
+              </div>
+            </div>
 
-      <div className="mb-3">
-        <p className="font-semibold text-gray-900 mb-1">Suggested transcript</p>
-        <p className="text-gray-700">{result.suggested_transcript}</p>
-      </div>
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-sm leading-relaxed text-slate-600">
+                {result.topic_relevance?.reason}
+              </p>
+            </div>
+          </section>
 
-      <div className="mt-4 p-3 rounded-lg bg-indigo-50 border border-indigo-100">
-        <p className="font-semibold text-indigo-700 mb-1">Daily motivation</p>
-        <p className="text-indigo-900 italic">“{result.encouragement?.quote}”</p>
-        <p className="text-indigo-700 text-sm mt-1">— {result.encouragement?.author}</p>
+          <section>
+            <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Expression fixes
+            </h4>
+
+            {expressionFixes.length ? (
+              <div className="space-y-4">
+                {expressionFixes.map((fix, idx) => (
+                  <div
+                    key={`${fix.original}-${idx}`}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 sm:px-5 sm:py-4"
+                  >
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-0">
+                      <div className="rounded-lg bg-slate-50/70 px-3 py-3 md:rounded-r-none md:border-r md:border-slate-200/70 md:pr-4">
+                        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                          Original
+                        </p>
+                        <p className="mt-1.5 text-sm leading-relaxed text-slate-500 line-through decoration-1">
+                          {fix.original}
+                        </p>
+                      </div>
+
+                      <div className="rounded-lg bg-white px-3 py-3 md:rounded-l-none md:pl-4">
+                        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                          Better version
+                        </p>
+                        <p className="mt-1.5 text-sm font-medium leading-relaxed text-slate-900">
+                          {fix.suggested}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500">
+                No major expression issues found.
+              </p>
+            )}
+          </section>
+
+          <section>
+            <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Suggestions
+            </h4>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              {suggestions.length ? (
+                <ul className="space-y-2">
+                  {suggestions.map((suggestion, i) => (
+                    <li
+                      key={`imp-${i}`}
+                      className="text-sm leading-relaxed text-slate-700"
+                    >
+                      {suggestion}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-slate-500">No suggestions available.</p>
+              )}
+
+              {suggestionsFooter && (
+                <div className="mt-4 border-t border-slate-200 pt-3">
+                  {suggestionsFooter}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                Suggested answer
+              </h4>
+              <button
+                type="button"
+                onClick={handleCopySuggestedAnswer}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
+                aria-label={isCopied ? "Copied" : "Copy suggested answer"}
+                title={isCopied ? "Copied" : "Copy"}
+              >
+                {isCopied ? (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    className="h-4 w-4"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m5 13 4 4L19 7"
+                    />
+                  </svg>
+                ) : (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    className="h-4 w-4"
+                    aria-hidden="true"
+                  >
+                    <rect x="9" y="9" width="11" height="11" rx="2" />
+                    <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+                  </svg>
+                )}
+              </button>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+              <p className="text-sm leading-7 text-slate-700">
+                {result.suggested_transcript}
+              </p>
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   );
