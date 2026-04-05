@@ -6,7 +6,6 @@ import {
   FiMic,
   FiSquare,
   FiDownload,
-  FiMessageCircle,
 } from "react-icons/fi";
 
 interface RandomWordProps {
@@ -24,12 +23,10 @@ interface RandomWordProps {
   onStop: () => void;
   onRecordAgain: () => void;
   onDownload: () => void;
-  onFeedback: () => void;
   canRecord: boolean;
   canStop: boolean;
   canRecordAgain: boolean;
   canDownload: boolean;
-  canFeedback: boolean;
 }
 
 type ActionButtonProps = {
@@ -89,42 +86,43 @@ export default function RandomWord({
   onStop,
   onRecordAgain,
   onDownload,
-  onFeedback,
   canRecord,
   canStop,
   canRecordAgain,
   canDownload,
-  canFeedback,
 }: RandomWordProps) {
-  const helperText =
-    lang === "en"
-      ? `Talk about your hobbies using the word below in ${duration} seconds.`
-      : `Use the word below naturally while speaking about yourself for ${duration} seconds.`;
+  const topicPhrase = topicLabel ? topicLabel.toLowerCase() : "hobbies";
 
   return (
     <div className="mt-4">
       {word && (
         <div className="mb-5 rounded-2xl bg-emerald-50 px-4 py-3 text-center text-lg font-medium text-slate-800">
-          {helperText}
+          {lang === "en" ? (
+            <>
+              Talk about your <strong>{topicPhrase}</strong> using the word below in {duration} seconds.
+            </>
+          ) : (
+            <>Use the word below naturally while speaking about yourself for {duration} seconds.</>
+          )}
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-3 text-center shadow-sm sm:p-4">
           {isRecording && (
-            <div className="mb-3 flex items-center justify-center gap-2">
+            <div className="mb-2 flex items-center justify-center gap-2">
               <span className="h-3 w-3 rounded-full bg-red-500 animate-pulse" />
               <span className="text-sm font-semibold text-red-600">Recording…</span>
             </div>
           )}
 
-          <div className="flex min-h-[140px] flex-col items-center justify-center">
+          <div className="flex min-h-[102px] flex-col items-center justify-center pt-1.5">
             <div className="text-5xl font-bold tracking-tight text-slate-900">
               {word || "—"}
             </div>
 
             {(ipa || pos) && lang === "en" && (
-              <div className="mt-1 flex items-center justify-center gap-2 text-sm text-slate-500">
+              <div className="mt-0.5 flex items-center justify-center gap-2 text-sm text-slate-500">
                 {ipa && <span className="font-mono text-lg text-slate-700">/{ipa}/</span>}
                 {ipa && pos && <span className="text-slate-300">|</span>}
                 {pos && (
@@ -136,12 +134,12 @@ export default function RandomWord({
             )}
 
             {lang === "ko" && meaning && (
-              <div className="mt-1 text-sm leading-6 text-slate-600">{meaning}</div>
+              <div className="mt-0.5 text-sm leading-6 text-slate-600">{meaning}</div>
             )}
           </div>
 
           {word && (
-            <div className="mt-8 flex items-center justify-center gap-4">
+            <div className="mt-3 flex items-center justify-center gap-2.5">
               <ActionButton
                 onClick={isRecording ? onStop : onRecord}
                 disabled={isRecording ? !canStop : !canRecord}
@@ -169,20 +167,12 @@ export default function RandomWord({
                 <FiDownload size={20} />
               </ActionButton>
 
-              <ActionButton
-                onClick={onFeedback}
-                disabled={!canFeedback}
-                label="Get AI Feedback"
-                className="bg-emerald-600 text-white hover:bg-emerald-700"
-              >
-                <FiMessageCircle size={20} />
-              </ActionButton>
             </div>
           )}
         </div>
 
-        <div className="relative rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex min-h-[180px] items-center justify-center">
+        <div className="relative rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+          <div className="flex min-h-[140px] items-center justify-center">
             {timer}
           </div>
         </div>

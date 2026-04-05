@@ -9,7 +9,7 @@ import FeedbackPanel from "@/components/FeedbackPanel";
 import TimerFrame from "@/components/TimerFrame";
 import oxfordData from "@/data/oxford3000_parsed.json";
 import korean5666 from "@/data/korean5666.json";
-import { FiX, FiCopy, FiTrash2, FiThumbsUp, FiThumbsDown } from "react-icons/fi";
+import { FiX, FiCopy, FiTrash2, FiThumbsUp, FiThumbsDown, FiMessageSquare } from "react-icons/fi";
 import { getOrCreateSessionId } from "@/lib/session-id";
 import {
   sendFeedbackReaction,
@@ -121,11 +121,12 @@ export default function PracticePage() {
   >({});
   const [sessionId, setSessionId] = useState("");
   const [reportForm, setReportForm] = useState<ReportFormState>({
-    type: "bug",
+    type: "ai_quality",
     email: "",
     content: "",
     submitted: false,
   });
+  const [showFeedbackTooltipIntro, setShowFeedbackTooltipIntro] = useState(false);
 
   // ✅ Tooltip style giống RandomWord (đặt trong page.tsx để dùng cho History)
   const tooltipBase =
@@ -179,6 +180,8 @@ export default function PracticePage() {
   const [resetSignal, setResetSignal] = useState(0);
 
   const [feedback, setFeedback] = useState<FeedbackResult | null>(null);
+  const [transcript, setTranscript] = useState("");
+  const [isLoadingTranscript, setIsLoadingTranscript] = useState(false);
   const [speakingTime, setSpeakingTime] = useState(30);
 
   const labelClass = "mb-1.5 block text-sm font-medium text-slate-700";
@@ -191,6 +194,15 @@ export default function PracticePage() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
     setSessionId(getOrCreateSessionId());
+
+    const tooltipSeenKey = "koe_get_feedback_tooltip_seen_v1";
+    if (typeof window !== "undefined" && !window.localStorage.getItem(tooltipSeenKey)) {
+      setShowFeedbackTooltipIntro(true);
+      window.localStorage.setItem(tooltipSeenKey, "1");
+      window.setTimeout(() => {
+        setShowFeedbackTooltipIntro(false);
+      }, 2200);
+    }
   }, []);
 
   const logUsageEvent = async (
@@ -232,6 +244,8 @@ export default function PracticePage() {
 
     // 🔹 feedback
     setFeedback(null);
+    setTranscript("");
+    setIsLoadingTranscript(false);
 
     // 🔹 filters
     setLevel("");
@@ -338,9 +352,19 @@ export default function PracticePage() {
     setActiveReviewedToken(null);
     setAudioBlob(null);
     setFeedback(null);
+    setTranscript("");
+    setIsLoadingTranscript(false);
     setResetSignal((n) => n + 1);
     setTimeUpSignal((n) => n + 1);
     setIsRecording(false);
+
+    setTimeout(() => {
+      const section = document.getElementById("random-word-section");
+      if (!section) return;
+
+      const targetTop = section.getBoundingClientRect().top + window.scrollY - 110;
+      window.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
+    }, 50);
   };
 
   // ==============================
@@ -357,6 +381,8 @@ export default function PracticePage() {
   const startRecording = () => {
     if (!canRecord) return;
     setFeedback(null);
+    setTranscript("");
+    setIsLoadingTranscript(false);
     setResetSignal((n) => n + 1);
     setTimeUpSignal((n) => n + 1);
     setIsRecording(true);
@@ -367,6 +393,8 @@ export default function PracticePage() {
     if (!canRecordAgain) return;
     setAudioBlob(null);
     setFeedback(null);
+    setTranscript("");
+    setIsLoadingTranscript(false);
     setResetSignal((n) => n + 1);
     setTimeUpSignal((n) => n + 1);
     setIsRecording(true);
@@ -500,6 +528,41 @@ const getFeedback = async () => {
 
   const handleAudioReady = (blob: Blob | null) => {
     setAudioBlob(blob);
+    if (!blob) {
+      setTranscript("");
+      setIsLoadingTranscript(false);
+      return;
+    }
+
+    setIsLoadingTranscript(true);
+    setTranscript("");
+
+    const sttForm = new FormData();
+    sttForm.append("audio", blob);
+    sttForm.append("word", word);
+    sttForm.append("topic", topic);
+    sttForm.append("lang", lang);
+    sttForm.append("target", target);
+    sttForm.append("mode", "stt");
+    if (sessionId) {
+      sttForm.append("sessionId", sessionId);
+    }
+
+    fetch("/api/evaluate", { method: "POST", body: sttForm })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data?.detail || data?.error || "Failed to get transcript");
+        }
+        setTranscript(String(data?.transcript || ""));
+      })
+      .catch(() => {
+        setTranscript("");
+      })
+      .finally(() => {
+        setIsLoadingTranscript(false);
+      });
+
     if (blob) {
       logUsageEvent("record_finished", { currentWordToken });
 
@@ -816,7 +879,7 @@ const getFeedback = async () => {
       </div>
 
       {/* RANDOM WORD BOX */}
-      <div className="relative mt-6">
+      <div id="random-word-section" className="relative mt-6">
         <RandomWord
           word={word}
           ipa={ipa}
@@ -839,14 +902,64 @@ const getFeedback = async () => {
           onStop={stopRecording} // ✅ NEW
           onRecordAgain={recordAgain}
           onDownload={downloadRecording}
-          onFeedback={getFeedback}
           canRecord={canRecord}
           canStop={canStop}
           canRecordAgain={canRecordAgain}
           canDownload={canDownload}
-          canFeedback={canFeedback}
         />
       </div>
+
+      {(hasCompletedRecording || isLoadingTranscript) && (
+        <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Transcript
+            </h4>
+            {!isRecording && hasCompletedRecording && (
+              <div className="relative group">
+                <button
+                  type="button"
+                  onClick={getFeedback}
+                  disabled={!canFeedback}
+                  className={[
+                    "inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition",
+                    canFeedback
+                      ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                      : "cursor-not-allowed bg-slate-200 text-slate-400",
+                  ].join(" ")}
+                >
+                  <span className="relative inline-flex h-5 w-5 items-center justify-center">
+                    <FiMessageSquare className="h-4 w-4" aria-hidden="true" />
+                    <span className="absolute -right-1.5 -top-1.5 inline-flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-white/95 px-0.5 text-[9px] font-bold leading-none text-emerald-700 shadow-sm">
+                      F
+                    </span>
+                  </span>
+                  <span>{isLoadingFeedback ? "Getting feedback..." : "Get Feedback"}</span>
+                </button>
+
+                <span
+                  className={[
+                    "pointer-events-none absolute left-1/2 top-full z-10 mt-2 -translate-x-1/2 whitespace-nowrap rounded bg-black px-2 py-1 text-xs text-white transition",
+                    showFeedbackTooltipIntro ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                  ].join(" ")}
+                >
+                  Get AI Feedback
+                </span>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+            {isLoadingTranscript ? (
+              <p className="text-sm text-slate-500">Preparing transcript...</p>
+            ) : (
+              <p className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-700">
+                {transcript || "(empty)"}
+              </p>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* HISTORY */}
       <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm sm:p-5">
@@ -1063,9 +1176,12 @@ const getFeedback = async () => {
         />
       </div>
 
+      {false && (
       <section className="mt-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-        <h4 className="text-sm font-semibold text-slate-800">Report issue / Feedback</h4>
-        <p className="mt-1 text-xs text-slate-500">Optional: Leave your email to get early updates and a launch discount when paid plans go live.</p>
+        <h4 className="text-sm font-semibold text-slate-800">Feedback</h4>
+        <p className="mt-1 text-xs text-slate-500">
+          Leave your email to <strong>get discount</strong> when paid plans go live.
+        </p>
 
         <form onSubmit={submitReportIssue} className="mt-3 space-y-3">
           <div>
@@ -1139,6 +1255,7 @@ const getFeedback = async () => {
           </div>
         </form>
       </section>
+      )}
 
       {feedback?.encouragement?.quote && (
         <section className="mt-10 border-t border-slate-100 pt-8 sm:pt-10">

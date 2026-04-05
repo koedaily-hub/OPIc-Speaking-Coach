@@ -71,12 +71,79 @@ function countWords(text: string) {
   return cleaned.split(/\s+/).length;
 }
 
+function normalizeToken(token: string) {
+  return token.toLowerCase().replace(/[^a-z]/g, "");
+}
+
+function buildWordFamilyForms(baseWord: string) {
+  const base = normalizeToken(baseWord);
+  const forms = new Set<string>();
+  if (!base) return forms;
+
+  forms.add(base);
+
+  // Common inflections
+  forms.add(`${base}s`);
+  forms.add(`${base}es`);
+  forms.add(`${base}ed`);
+  forms.add(`${base}ing`);
+  forms.add(`${base}er`);
+
+  if (base.endsWith("e")) {
+    const stem = base.slice(0, -1);
+    if (stem.length >= 3) {
+      forms.add(`${stem}ing`);
+      forms.add(`${stem}ed`);
+      forms.add(`${stem}er`);
+    }
+  }
+
+  if (base.endsWith("y") && base.length > 3) {
+    const stem = base.slice(0, -1);
+    forms.add(`${stem}ies`);
+    forms.add(`${stem}ied`);
+  }
+
+  // Lightweight derivational variants
+  forms.add(`${base}ion`);
+  forms.add(`${base}tion`);
+  forms.add(`${base}ment`);
+  forms.add(`${base}al`);
+  forms.add(`${base}ity`);
+
+  // Common verb -> noun pattern (e.g., operate -> operation)
+  if (base.endsWith("ate") && base.length > 4) {
+    const stem = base.slice(0, -3);
+    forms.add(`${stem}ation`);
+    forms.add(`${stem}ations`);
+  }
+
+  return forms;
+}
+
 function containsRandomWord(transcript: string, randomWord: string) {
   if (!transcript || !randomWord) return false;
-  const t = transcript.toLowerCase();
-  const w = randomWord.toLowerCase().trim();
-  // match nguyên từ (word boundary)
-  return new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(t);
+
+  const rawWord = randomWord.toLowerCase().trim();
+
+  // Phrase fallback: keep safe exact boundary behavior for multi-word inputs
+  if (rawWord.includes(" ")) {
+    return new RegExp(
+      `\\b${rawWord.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+      "i"
+    ).test(transcript.toLowerCase());
+  }
+
+  const familyForms = buildWordFamilyForms(rawWord);
+  if (!familyForms.size) return false;
+
+  const tokens = transcript
+    .toLowerCase()
+    .split(/\s+/)
+    .map((token) => normalizeToken(token))
+    .filter(Boolean);
+
+  return tokens.some((token) => familyForms.has(token));
 }
 
 function resolveTopicName(topicId: string) {

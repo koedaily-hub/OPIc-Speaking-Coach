@@ -41,6 +41,20 @@ export default function FeedbackPanel({
   const expressionFixes = result.expression_fixes || [];
   const [isCopied, setIsCopied] = React.useState(false);
 
+  const inferSuggestionLabel = React.useCallback((suggestion: string) => {
+    const text = suggestion.toLowerCase();
+
+    if (/grammar|tense|article|subject-verb|agreement/.test(text)) return "Grammar";
+    if (/link|transition|connect|connector/.test(text)) return "Linking";
+    if (/clear|clarity|understand|confus/.test(text)) return "Clarity";
+    if (/detail|example|specific|context/.test(text)) return "Specificity";
+    if (/vocab|word choice|lexical|paraphrase/.test(text)) return "Vocabulary";
+    if (/fluency|flow|hesitat|pause|smooth/.test(text)) return "Fluency";
+    if (/pronunciation|stress|intonation/.test(text)) return "Pronunciation";
+
+    return "Focus";
+  }, []);
+
   const handleCopySuggestedAnswer = React.useCallback(async () => {
     try {
       await navigator.clipboard.writeText(result.suggested_transcript || "");
@@ -106,30 +120,29 @@ export default function FeedbackPanel({
             </h4>
 
             {expressionFixes.length ? (
-              <div className="space-y-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50/50">
+                <div className="hidden border-b border-slate-200 px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-500 md:grid md:grid-cols-2 md:gap-6 sm:px-5">
+                  <p>Original</p>
+                  <p>Better version</p>
+                </div>
+
                 {expressionFixes.map((fix, idx) => (
                   <div
                     key={`${fix.original}-${idx}`}
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 sm:px-5 sm:py-4"
+                    className="grid grid-cols-1 gap-3 px-4 py-3 sm:px-5 sm:py-4 md:grid-cols-2 md:gap-6 [&:not(:last-child)]:border-b [&:not(:last-child)]:border-slate-200"
                   >
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-0">
-                      <div className="rounded-lg bg-slate-50/70 px-3 py-3 md:rounded-r-none md:border-r md:border-slate-200/70 md:pr-4">
-                        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                          Original
-                        </p>
-                        <p className="mt-1.5 text-sm leading-relaxed text-slate-500 line-through decoration-1">
+                    <div>
+                      <p className="text-sm leading-relaxed text-slate-600">
+                        <span className="underline decoration-slate-400 decoration-2 underline-offset-2">
                           {fix.original}
-                        </p>
-                      </div>
+                        </span>
+                      </p>
+                    </div>
 
-                      <div className="rounded-lg bg-white px-3 py-3 md:rounded-l-none md:pl-4">
-                        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                          Better version
-                        </p>
-                        <p className="mt-1.5 text-sm font-medium leading-relaxed text-slate-900">
-                          {fix.suggested}
-                        </p>
-                      </div>
+                    <div>
+                      <p className="text-sm font-medium leading-relaxed text-slate-900">
+                        {fix.suggested}
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -154,7 +167,10 @@ export default function FeedbackPanel({
                       key={`imp-${i}`}
                       className="text-sm leading-relaxed text-slate-700"
                     >
-                      {suggestion}
+                      <span className="font-semibold text-slate-900">
+                        {inferSuggestionLabel(suggestion)}:
+                      </span>{" "}
+                      <span>{suggestion}</span>
                     </li>
                   ))}
                 </ul>
@@ -171,54 +187,69 @@ export default function FeedbackPanel({
           </section>
 
           <section>
-            <div className="mb-3 flex items-center justify-between">
-              <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-                Suggested answer
-              </h4>
-              <button
-                type="button"
-                onClick={handleCopySuggestedAnswer}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
-                aria-label={isCopied ? "Copied" : "Copy suggested answer"}
-                title={isCopied ? "Copied" : "Copy"}
-              >
-                {isCopied ? (
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    className="h-4 w-4"
-                    aria-hidden="true"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="m5 13 4 4L19 7"
-                    />
-                  </svg>
-                ) : (
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    className="h-4 w-4"
-                    aria-hidden="true"
-                  >
-                    <rect x="9" y="9" width="11" height="11" rx="2" />
-                    <path d="M5 15V6a2 2 0 0 1 2-2h9" />
-                  </svg>
-                )}
-              </button>
-            </div>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <div>
+                <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  Transcript
+                </h4>
+                <div className="h-full rounded-xl border border-slate-200 bg-white px-4 py-3">
+                  <p className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-700">
+                    {result.transcript || "(empty)"}
+                  </p>
+                </div>
+              </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-              <p className="text-sm leading-7 text-slate-700">
-                {result.suggested_transcript}
-              </p>
+              <div>
+                <div className="mb-3 flex items-center justify-between">
+                  <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                    Suggested answer
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={handleCopySuggestedAnswer}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
+                    aria-label={isCopied ? "Copied" : "Copy suggested answer"}
+                    title={isCopied ? "Copied" : "Copy"}
+                  >
+                    {isCopied ? (
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        className="h-4 w-4"
+                        aria-hidden="true"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="m5 13 4 4L19 7"
+                        />
+                      </svg>
+                    ) : (
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        className="h-4 w-4"
+                        aria-hidden="true"
+                      >
+                        <rect x="9" y="9" width="11" height="11" rx="2" />
+                        <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+
+                <div className="h-full rounded-xl border border-slate-200 bg-white px-4 py-3">
+                  <p className="text-sm leading-7 text-slate-700">
+                    {result.suggested_transcript}
+                  </p>
+                </div>
+              </div>
             </div>
           </section>
         </div>
