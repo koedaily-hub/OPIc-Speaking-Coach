@@ -192,7 +192,13 @@ export default function PracticePage() {
   const recordButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "auto" });
+    if (typeof window !== "undefined" && "scrollRestoration" in window.history) {
+      window.history.scrollRestoration = "manual";
+    }
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    window.setTimeout(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    }, 0);
     setSessionId(getOrCreateSessionId());
 
     const tooltipSeenKey = "koe_get_feedback_tooltip_seen_v1";
@@ -518,6 +524,8 @@ const getFeedback = async () => {
   const restoreFeedbackFromHistory = (entry: HistoryItem) => {
     if (!entry.feedback) return;
     setFeedback(entry.feedback);
+    setTranscript(entry.feedback.transcript || "");
+    setIsLoadingTranscript(false);
     setActiveReviewedToken(entry.token);
     setTimeout(() => {
       document
@@ -909,7 +917,7 @@ const getFeedback = async () => {
         />
       </div>
 
-      {(hasCompletedRecording || isLoadingTranscript) && (
+      {(hasCompletedRecording || isLoadingTranscript || !!transcript || !!feedback) && (
         <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">

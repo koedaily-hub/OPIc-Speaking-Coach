@@ -116,7 +116,7 @@ export default function RandomWord({
             </div>
           )}
 
-          <div className="flex min-h-[102px] flex-col items-center justify-center pt-1.5">
+          <div className="flex min-h-[96px] flex-col items-center justify-center pt-4">
             <div className="text-5xl font-bold tracking-tight text-slate-900">
               {word || "—"}
             </div>

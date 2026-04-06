@@ -41,6 +41,70 @@ export default function FeedbackPanel({
   const expressionFixes = result.expression_fixes || [];
   const [isCopied, setIsCopied] = React.useState(false);
 
+  const reusablePhrasePatterns = React.useMemo(
+    () => [
+      /\bin my free time\b/gi,
+      /\blook for\b/gi,
+      /\bwaste of time\b/gi,
+      /\bget better at\b/gi,
+      /\btake part in\b/gi,
+      /\bbe interested in\b/gi,
+      /\bat the same time\b/gi,
+      /\ba lot of\b/gi,
+      /\bspend time (?:on|with)\b/gi,
+      /\bend up [a-z]+\b/gi,
+    ],
+    []
+  );
+
+  const renderHighlightedSuggestedAnswer = React.useCallback((text: string) => {
+    if (!text) return text;
+
+    const matches: Array<{ start: number; end: number }> = [];
+    for (const pattern of reusablePhrasePatterns) {
+      pattern.lastIndex = 0;
+      const match = pattern.exec(text);
+      if (match && typeof match.index === "number") {
+        matches.push({ start: match.index, end: match.index + match[0].length });
+      }
+    }
+
+    const selected: Array<{ start: number; end: number }> = [];
+    for (const range of matches.sort((a, b) => a.start - b.start || b.end - b.start - (a.end - a.start))) {
+      const overlaps = selected.some(
+        (picked) => !(range.end <= picked.start || range.start >= picked.end)
+      );
+      if (!overlaps) selected.push(range);
+      if (selected.length >= 3) break;
+    }
+
+    if (!selected.length) return text;
+
+    const nodes: React.ReactNode[] = [];
+    let cursor = 0;
+    selected.forEach((range, idx) => {
+      if (range.start > cursor) {
+        nodes.push(
+          <React.Fragment key={`plain-${idx}`}>{text.slice(cursor, range.start)}</React.Fragment>
+        );
+      }
+      nodes.push(
+        <span
+          key={`hl-${idx}`}
+          className="underline decoration-slate-400 decoration-2 underline-offset-2"
+        >
+          {text.slice(range.start, range.end)}
+        </span>
+      );
+      cursor = range.end;
+    });
+    if (cursor < text.length) {
+      nodes.push(<React.Fragment key="plain-tail">{text.slice(cursor)}</React.Fragment>);
+    }
+
+    return nodes;
+  }, [reusablePhrasePatterns]);
+
   const inferSuggestionLabel = React.useCallback((suggestion: string) => {
     const text = suggestion.toLowerCase();
 
@@ -132,11 +196,7 @@ export default function FeedbackPanel({
                     className="grid grid-cols-1 gap-3 px-4 py-3 sm:px-5 sm:py-4 md:grid-cols-2 md:gap-6 [&:not(:last-child)]:border-b [&:not(:last-child)]:border-slate-200"
                   >
                     <div>
-                      <p className="text-sm leading-relaxed text-slate-600">
-                        <span className="underline decoration-slate-400 decoration-2 underline-offset-2">
-                          {fix.original}
-                        </span>
-                      </p>
+                      <p className="text-sm leading-relaxed text-slate-500">{fix.original}</p>
                     </div>
 
                     <div>
@@ -187,20 +247,22 @@ export default function FeedbackPanel({
           </section>
 
           <section>
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <div>
-                <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                  Transcript
-                </h4>
-                <div className="h-full rounded-xl border border-slate-200 bg-white px-4 py-3">
+            <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
+              <div className="flex flex-col">
+                <div className="mb-3 flex min-h-[32px] items-center">
+                  <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                    Transcript
+                  </h4>
+                </div>
+                <div className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3">
                   <p className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-700">
                     {result.transcript || "(empty)"}
                   </p>
                 </div>
               </div>
 
-              <div>
-                <div className="mb-3 flex items-center justify-between">
+              <div className="flex flex-col">
+                <div className="mb-3 flex min-h-[32px] items-center justify-between">
                   <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
                     Suggested answer
                   </h4>
@@ -244,9 +306,9 @@ export default function FeedbackPanel({
                   </button>
                 </div>
 
-                <div className="h-full rounded-xl border border-slate-200 bg-white px-4 py-3">
+                <div className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3">
                   <p className="text-sm leading-7 text-slate-700">
-                    {result.suggested_transcript}
+                    {renderHighlightedSuggestedAnswer(result.suggested_transcript)}
                   </p>
                 </div>
               </div>
