@@ -99,7 +99,7 @@ export default function PracticePage() {
   // STATE
   // ==============================
   const [lang, setLang] = useState<"en" | "ko">("en");
-  const [target, setTarget] = useState<TargetLevel>("IM");
+  const [target, setTarget] = useState<TargetLevel>("IH");
 
   const [topic, setTopic] = useState(DEFAULT_TOPIC_ID);
   const [level, setLevel] = useState("");
@@ -1146,7 +1146,7 @@ const getFeedback = async () => {
                   <p className="mt-2 text-sm text-emerald-700">Thanks! We’ll keep improving feedback quality.</p>
                 )}
 
-                {activeFeedbackCollection.vote === "dislike" && (
+                {activeFeedbackCollection.vote === "dislike" && !activeFeedbackCollection.submitted && (
                   <div className="mt-3">
                     <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
                       Why was it not helpful? (Select one or more)
@@ -1203,10 +1203,11 @@ const getFeedback = async () => {
                         Submit feedback
                       </button>
                     </div>
-                    {activeFeedbackCollection.submitted && (
-                      <p className="mt-2 text-right text-sm text-emerald-700">Thanks for sharing your feedback.</p>
-                    )}
                   </div>
+                )}
+
+                {activeFeedbackCollection.vote === "dislike" && activeFeedbackCollection.submitted && (
+                  <p className="mt-2 text-right text-sm text-emerald-700">Thanks for sharing your feedback.</p>
                 )}
               </>
             ) : undefined

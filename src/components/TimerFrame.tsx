@@ -38,15 +38,15 @@ export default function TimerFrame({
 
   return (
     <div
-      className={`absolute inset-0 rounded-xl border-2 pointer-events-none ${
+      className={`absolute inset-0 rounded-lg border-2 pointer-events-none ${
         timeLeft <= 3 && active ? "border-rose-300" : "border-slate-300"
       }`}
     >
       <div
         className="absolute inset-0 flex items-center justify-center"
       >
-        <div className="rounded-lg bg-white/90 px-5 py-4 text-center">
-          <p className="text-5xl font-semibold tabular-nums tracking-tight text-slate-800 sm:text-6xl">
+        <div className="rounded-md bg-white/90 px-4 py-3 text-center">
+          <p className="text-4xl font-semibold tabular-nums tracking-tight text-slate-800 sm:text-5xl">
             {timeLeft}
           </p>
         </div>

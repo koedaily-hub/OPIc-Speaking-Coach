@@ -140,6 +140,10 @@ function inferInternalSignals(transcript: string) {
   const hasLinkers = /\b(because|so|but|then|after that|for example|however|also|therefore)\b/i.test(
     transcript
   );
+  const hasReasonMarker = /\b(because|since|so)\b/i.test(transcript);
+  const hasExampleMarker = /\b(for example|for instance|like when|such as)\b/i.test(
+    transcript
+  );
   const hasTimeMarkers = /\b(yesterday|last|today|tomorrow|next|ago|when|before|after)\b/i.test(
     transcript
   );
@@ -149,14 +153,27 @@ function inferInternalSignals(transcript: string) {
   const sentenceCount = trimmed
     ? trimmed.split(/[.!?]+/).map((s) => s.trim()).filter(Boolean).length
     : 0;
+  const sentenceWordCounts = trimmed
+    ? trimmed
+        .split(/[.!?]+/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => s.split(/\s+/).filter(Boolean).length)
+    : [];
+  const longestSentenceWords = sentenceWordCounts.length
+    ? Math.max(...sentenceWordCounts)
+    : 0;
   const hasParagraphLikeFlow = wordCount >= 60 && hasLinkers;
 
   return {
     wordCount,
     hasLinkers,
+    hasReasonMarker,
+    hasExampleMarker,
     hasTimeMarkers,
     hasFillers,
     sentenceCount,
+    longestSentenceWords,
     hasParagraphLikeFlow,
   };
 }
@@ -170,13 +187,31 @@ function buildContextAwareFallback(
 
   if (signals.wordCount > 0 && signals.wordCount < 20) {
     suggestions.push(
-      "Extend your answer with one or two more supporting details."
+      "Add one more short supporting detail after your main point so your answer feels complete."
     );
   }
 
   if (!signals.hasLinkers) {
     suggestions.push(
-      "Use simple linking words to connect your ideas more smoothly."
+      "Use one simple transition like because, so, or but to connect your next idea."
+    );
+  }
+
+  if (!signals.hasReasonMarker) {
+    suggestions.push(
+      "Add one clear reason after your point (for example, start with because) so your opinion sounds supported."
+    );
+  }
+
+  if ((target === "IM" || target === "IH" || target === "AL") && !signals.hasExampleMarker) {
+    suggestions.push(
+      "Add one short personal example (for example, a real situation from your life) to support your main idea."
+    );
+  }
+
+  if (signals.longestSentenceWords >= 24) {
+    suggestions.push(
+      "Break one long unclear sentence into two shorter complete sentences so the listener can follow more easily."
     );
   }
 
@@ -188,19 +223,19 @@ function buildContextAwareFallback(
 
   if ((target === "IH" || target === "AL") && !signals.hasTimeMarkers) {
     suggestions.push(
-      "Make your time references clearer when describing experiences or events."
+      "Use clearer time markers (like last year, these days, or after that) when describing experiences."
     );
   }
 
   if (target === "AL" && signals.wordCount < 50) {
     suggestions.push(
-      "Develop your answer like a short paragraph instead of separate ideas."
+      "Develop your answer as a short paragraph: point, reason, one example, then a short closing point."
     );
   }
 
-    if ((target === "IH" || target === "AL") && !signals.hasParagraphLikeFlow) {
+  if ((target === "IH" || target === "AL") && !signals.hasParagraphLikeFlow) {
     suggestions.push(
-      "Develop your answer more like a connected short paragraph instead of separate sentence ideas."
+      "Connect your ideas into a short flow instead of separate sentence blocks so the response sounds more developed."
     );
   }
 
@@ -212,7 +247,7 @@ function buildContextAwareFallback(
 
   if (target === "AL" && signals.wordCount >= 25 && signals.wordCount < 70) {
     suggestions.push(
-      "Add one more layer of support after your personal example so the answer feels more fully developed."
+      "After your example, add one more supporting explanation so your answer sounds fully developed for this level."
     );
   }
 
@@ -531,6 +566,8 @@ Rules:
 - expression_fixes should focus on meaningful spoken-expression improvements
 - improvement_points must be specific, actionable, and matched to the target level
 - suggested_transcript must sound natural, not memorized or theatrical
+ - suggested_transcript should follow PREP as a natural framework:
+   Point -> Reason -> Example -> Point
 - if the target is lower, do not force advanced output
 - if the target is higher, encourage the next realistic step, not unrealistic perfection
 - do not give vague advice such as "practice more", "use better vocabulary", or "speak naturally"
@@ -546,7 +583,13 @@ Rules:
 - For IH, prefer a more connected and developed response with emerging narration or richer description, but keep it realistic and not over-polished.
 - For AL, prefer a short paragraph-like response with a clear general statement, a personal example, and one supporting explanation.
 - For IH and AL, stronger organization, support, and flow matter more than just correcting grammar.
-
+- For IH, you may make the answer more connected and slightly more developed, but do not add multiple new supporting ideas that were not present in the transcript.
+- Keep the suggested answer close to the learner's original content, with only light development.
+- For IH, add at most one light supporting idea beyond the original transcript, and only if it feels naturally implied.
+ - Apply PREP across all targets, but calibrate by level:
+   * IL/IM: simple, lighter PREP with short clear sentences
+   * IH/AL: more developed PREP with smoother linking and clearer support
+ - Keep PREP natural and learner-friendly; do not make it sound scripted.
 `;
 
     const user = `
@@ -583,6 +626,8 @@ ${rubric.coachingFocus.map((x) => `- ${x}`).join("\n")}
 9. Correct the language, but do not replace the learner's idea with a different idea.
 10. If the target is IH or AL, make the suggested answer feel more connected and developed, not just a list of corrected sentences.
 11. If the target is AL, prefer a short paragraph-like response with a general point, a personal example, and clearer supporting explanation.
+ 12. Organize suggested_transcript with a natural PREP flow (Point -> Reason -> Example -> Point) while keeping wording realistic for this target level.
+ 13. Keep PREP lightweight for lower levels and more developed for higher levels; avoid robotic template language.
 
 `;
 
