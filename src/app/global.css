@@ -8,3 +8,37 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    font-family: Inter, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  h1 {
+    @apply text-h1;
+  }
+
+  h2 {
+    @apply text-h2;
+  }
+
+  h3 {
+    @apply text-h3;
+  }
+
+  p,
+  li,
+  span,
+  label,
+  button,
+  input,
+  textarea,
+  select {
+    line-height: 1.55;
+  }
+
+  small {
+    @apply text-caption;
+  }
+}

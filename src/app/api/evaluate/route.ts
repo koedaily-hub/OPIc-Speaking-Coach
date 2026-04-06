@@ -453,6 +453,42 @@ export async function POST(req: Request) {
     const form = await req.formData();
     const mode = String(form.get("mode") || "full");
 
+    if (mode === "translate_prep") {
+      const sourceText = String(form.get("text") || "").trim();
+      const fromLang = String(form.get("fromLang") || "en").trim().toLowerCase();
+      const toLang = String(form.get("toLang") || "vi").trim().toLowerCase();
+      const supported = new Set(["en", "vi", "ko"]);
+
+      if (!sourceText) {
+        return NextResponse.json({ error: "Missing text for translation" }, { status: 400 });
+      }
+
+      if (!supported.has(fromLang) || !supported.has(toLang) || fromLang === toLang) {
+        return NextResponse.json({ error: "Invalid translation language pair" }, { status: 400 });
+      }
+
+      const langLabel: Record<string, string> = {
+        en: "English",
+        vi: "Vietnamese",
+        ko: "Korean",
+      };
+
+      const translated = await callGroqJSON<{ translation: string }>(
+        `You are a professional language tutor translator for OPIc speaking practice.
+Translate text naturally and clearly.
+Keep tone educational and easy to compare with original text.
+Return ONLY valid JSON: {"translation": string}`,
+        `Translate this OPIc suggestion text from ${langLabel[fromLang]} to ${langLabel[toLang]}.
+Preserve meaning and practical coaching intent.
+Text: """${sourceText}"""`
+      );
+
+      return NextResponse.json({
+        ok: true,
+        translatedText: String(translated?.translation || "").trim(),
+      });
+    }
+
     const audio = form.get("audio");
     const word = String(form.get("word") || "").trim();
     const topicId = String(form.get("topic") || "").trim();

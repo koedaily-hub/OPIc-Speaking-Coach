@@ -129,6 +129,9 @@ export default function PracticePage() {
     submitted: false,
   });
   const [showFeedbackTooltipIntro, setShowFeedbackTooltipIntro] = useState(false);
+  const [hasUsedRandomOnce, setHasUsedRandomOnce] = useState(false);
+  const [hasUsedGetFeedbackOnce, setHasUsedGetFeedbackOnce] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
   // ✅ Tooltip style giống RandomWord (đặt trong page.tsx để dùng cho History)
   const tooltipBase =
@@ -210,6 +213,27 @@ export default function PracticePage() {
       window.setTimeout(() => {
         setShowFeedbackTooltipIntro(false);
       }, 2200);
+    }
+
+    if (typeof window !== "undefined") {
+      setHasUsedRandomOnce(window.localStorage.getItem("koe_random_word_clicked_v1") === "1");
+      setHasUsedGetFeedbackOnce(window.localStorage.getItem("koe_get_feedback_clicked_v1") === "1");
+
+      const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+      setPrefersReducedMotion(mediaQuery.matches);
+      const onMotionChange = (event: MediaQueryListEvent) => {
+        setPrefersReducedMotion(event.matches);
+      };
+
+      if (typeof mediaQuery.addEventListener === "function") {
+        mediaQuery.addEventListener("change", onMotionChange);
+      }
+
+      return () => {
+        if (typeof mediaQuery.removeEventListener === "function") {
+          mediaQuery.removeEventListener("change", onMotionChange);
+        }
+      };
     }
   }, []);
 
@@ -314,6 +338,50 @@ export default function PracticePage() {
     B2: "Upper-Intermediate",
   };
 
+  type RandomizedWordSelection = {
+    word: string;
+    posTag: string;
+    ipaWord: string;
+    meaning: string;
+  };
+
+  const pickEnglishWord = (): RandomizedWordSelection | null => {
+    let list = EN_WORDS;
+
+    if (level) list = list.filter((i) => i.level === level);
+    if (pos) {
+      if (pos === "other") {
+        const main = new Set(["n", "v", "adj", "adv"]);
+        list = list.filter((i) => !main.has(i.pos));
+      } else {
+        list = list.filter((i) => i.pos === pos);
+      }
+    }
+
+    if (list.length === 0) return null;
+
+    const picked = list[Math.floor(Math.random() * list.length)];
+    return {
+      word: picked.word,
+      posTag: POS_MAP[picked.pos] || picked.pos,
+      ipaWord: picked.word,
+      meaning: "",
+    };
+  };
+
+  const pickKoreanWord = (): RandomizedWordSelection | null => {
+    const list = KO_WORDS;
+    if (list.length === 0) return null;
+
+    const picked = list[Math.floor(Math.random() * list.length)];
+    return {
+      word: picked.word,
+      posTag: "Korean Word",
+      ipaWord: "",
+      meaning: picked.meaning,
+    };
+  };
+
   // ==============================
   // RANDOM WORD (EN & KO)
   // ==============================
@@ -325,36 +393,18 @@ export default function PracticePage() {
 
     addSkippedIfNeeded(prevWord, prevToken, hadAudio);
 
+    // Keep language-specific random-word logic isolated for safer KO expansion.
+    const selection = lang === "en" ? pickEnglishWord() : pickKoreanWord();
+    if (!selection) return;
+
+    setWord(selection.word);
+    setPosTag(selection.posTag);
+    setMeaning(selection.meaning);
+
     if (lang === "en") {
-      let list = EN_WORDS;
-
-      if (level) list = list.filter((i) => i.level === level);
-      if (pos) {
-        if (pos === "other") {
-          const main = new Set(["n", "v", "adj", "adv"]);
-          list = list.filter((i) => !main.has(i.pos));
-        } else {
-          list = list.filter((i) => i.pos === pos);
-        }
-      }
-      if (list.length === 0) return;
-
-      const picked = list[Math.floor(Math.random() * list.length)];
-
-      setWord(picked.word);
-      setPosTag(POS_MAP[picked.pos] || picked.pos);
-      getIPA(picked.word).then(setIpa);
-      setMeaning("");
+      getIPA(selection.ipaWord).then(setIpa);
     } else {
-      const list = KO_WORDS;
-      if (list.length === 0) return;
-
-      const picked = list[Math.floor(Math.random() * list.length)];
-
-      setWord(picked.word);
-      setPosTag("Korean Word");
       setIpa("");
-      setMeaning(picked.meaning);
     }
 
     setCurrentWordToken(nextToken);
@@ -375,6 +425,14 @@ export default function PracticePage() {
       const targetTop = section.getBoundingClientRect().top + window.scrollY - 110;
       window.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
     }, 50);
+  };
+
+  const handleRandomButtonClick = () => {
+    if (!hasUsedRandomOnce && typeof window !== "undefined") {
+      window.localStorage.setItem("koe_random_word_clicked_v1", "1");
+      setHasUsedRandomOnce(true);
+    }
+    randomize();
   };
 
   // ==============================
@@ -507,6 +565,14 @@ const getFeedback = async () => {
   }
 };
 
+  const handleGetFeedbackClick = () => {
+    if (!hasUsedGetFeedbackOnce && typeof window !== "undefined") {
+      window.localStorage.setItem("koe_get_feedback_clicked_v1", "1");
+      setHasUsedGetFeedbackOnce(true);
+    }
+    getFeedback();
+  };
+
   // ==============================
   // TOPIC LABEL
   // ==============================
@@ -521,6 +587,9 @@ const getFeedback = async () => {
   const canRecordAgain = canUseAudioActions;
   const canDownload = canUseAudioActions;
   const canFeedback = canUseAudioActions && !isLoadingFeedback;
+  const shouldHighlightRandom = !prefersReducedMotion && !hasUsedRandomOnce;
+  const shouldHighlightGetFeedback =
+    !prefersReducedMotion && !hasUsedGetFeedbackOnce && canFeedback;
 
   const completedHistoryCount = history.filter(
     (item) => item.status === "recorded" || item.status === "reviewed"
@@ -909,8 +978,13 @@ const getFeedback = async () => {
       </div>
       {/* RANDOM BUTTON */}
       <button
-        className="mt-5 w-full rounded-xl bg-[var(--koe-green)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[var(--koe-green-dark)]"
-        onClick={randomize}
+        className={[
+          "mt-5 w-full rounded-xl bg-[var(--koe-green)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[var(--koe-green-dark)]",
+          shouldHighlightRandom
+            ? "animate-pulse ring-2 ring-emerald-200 ring-offset-2"
+            : "",
+        ].join(" ")}
+        onClick={handleRandomButtonClick}
       >
         RANDOM WORD
       </button>
@@ -957,13 +1031,16 @@ const getFeedback = async () => {
               <div className="relative group">
                 <button
                   type="button"
-                  onClick={getFeedback}
+                  onClick={handleGetFeedbackClick}
                   disabled={!canFeedback}
                   className={[
                     "inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition",
                     canFeedback
                       ? "bg-emerald-600 text-white hover:bg-emerald-700"
                       : "cursor-not-allowed bg-slate-200 text-slate-400",
+                    shouldHighlightGetFeedback
+                      ? "animate-pulse ring-2 ring-emerald-200 ring-offset-2"
+                      : "",
                   ].join(" ")}
                 >
                   <span className="relative inline-flex h-5 w-5 items-center justify-center">
@@ -1109,6 +1186,7 @@ const getFeedback = async () => {
       <div id="ai-feedback-section" className="mt-6">
         <FeedbackPanel
           result={feedback}
+          primaryLanguage={lang}
           suggestionsFooter={
             feedback ? (
               <>

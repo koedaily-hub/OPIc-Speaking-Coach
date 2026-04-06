@@ -29,9 +29,22 @@ interface FeedbackResult {
 interface FeedbackPanelProps {
   result: FeedbackResult | null;
   suggestionsFooter?: React.ReactNode;
+  primaryLanguage?: "en" | "ko";
 }
 
 type TargetLevel = "IL" | "IM" | "IH" | "AL" | "Communication";
+type TranslateLang = "en" | "vi" | "ko";
+
+const TRANSLATE_LABEL: Record<TranslateLang, string> = {
+  en: "English",
+  vi: "Vietnamese",
+  ko: "Korean",
+};
+
+function getTranslateOptions(primaryLanguage: "en" | "ko"): TranslateLang[] {
+  if (primaryLanguage === "ko") return ["en", "vi"];
+  return ["vi", "ko"];
+}
 
 function splitIntoSentences(text: string): string[] {
   if (!text.trim()) return [];
@@ -115,6 +128,7 @@ function buildOpicTips(
 export default function FeedbackPanel({
   result,
   suggestionsFooter,
+  primaryLanguage = "en",
 }: FeedbackPanelProps) {
   if (!result) return null;
 
@@ -125,7 +139,18 @@ export default function FeedbackPanel({
     () => buildOpicTips(target, result.transcript || "", suggestions),
     [target, result.transcript, suggestions]
   );
+  const translateOptions = React.useMemo(
+    () => getTranslateOptions(primaryLanguage),
+    [primaryLanguage]
+  );
   const [isCopied, setIsCopied] = React.useState(false);
+  const [translateTo, setTranslateTo] = React.useState<"none" | TranslateLang>("none");
+  const [translatedSuggestionText, setTranslatedSuggestionText] = React.useState("");
+  const [isTranslating, setIsTranslating] = React.useState(false);
+  const [translationError, setTranslationError] = React.useState("");
+  const prepTooltipRef = React.useRef<HTMLSpanElement | null>(null);
+  const [isPrepTooltipOpen, setIsPrepTooltipOpen] = React.useState(false);
+  const [prepTooltipSide, setPrepTooltipSide] = React.useState<"right" | "left" | "bottom">("right");
   const sentenceRows = React.useMemo(() => {
     const transcriptSentences = splitIntoSentences(result.transcript || "");
     const suggestedSentences = splitIntoSentences(result.suggested_transcript || "");
@@ -144,6 +169,96 @@ export default function FeedbackPanel({
       return { original, suggested, isChanged };
     });
   }, [result.transcript, result.suggested_transcript]);
+
+  const translatedSentenceRows = React.useMemo(
+    () => splitIntoSentences(translatedSuggestionText),
+    [translatedSuggestionText]
+  );
+
+  React.useEffect(() => {
+    setTranslateTo("none");
+    setTranslatedSuggestionText("");
+    setIsTranslating(false);
+    setTranslationError("");
+  }, [result.suggested_transcript, primaryLanguage]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const runTranslation = async () => {
+      if (translateTo === "none") {
+        setTranslatedSuggestionText("");
+        setTranslationError("");
+        setIsTranslating(false);
+        return;
+      }
+
+      if (!result.suggested_transcript?.trim()) {
+        setTranslatedSuggestionText("");
+        setTranslationError("No suggestion text available to translate.");
+        setIsTranslating(false);
+        return;
+      }
+
+      setIsTranslating(true);
+      setTranslationError("");
+
+      try {
+        const form = new FormData();
+        form.append("mode", "translate_prep");
+        form.append("text", result.suggested_transcript);
+        form.append("fromLang", primaryLanguage);
+        form.append("toLang", translateTo);
+
+        const res = await fetch("/api/evaluate", { method: "POST", body: form });
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data?.detail || data?.error || "Translation failed");
+        }
+
+        if (!cancelled) {
+          setTranslatedSuggestionText(String(data?.translatedText || "").trim());
+          setTranslationError("");
+        }
+      } catch {
+        if (!cancelled) {
+          setTranslatedSuggestionText("");
+          setTranslationError("Translation is unavailable right now.");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsTranslating(false);
+        }
+      }
+    };
+
+    runTranslation();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [translateTo, primaryLanguage, result.suggested_transcript]);
+
+  React.useEffect(() => {
+    if (!isPrepTooltipOpen || !prepTooltipRef.current || typeof window === "undefined") {
+      return;
+    }
+
+    const rect = prepTooltipRef.current.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+
+    if (rect.right > viewportWidth - 10) {
+      if (rect.left > 220) {
+        setPrepTooltipSide("left");
+      } else {
+        setPrepTooltipSide("bottom");
+      }
+      return;
+    }
+
+    setPrepTooltipSide("right");
+  }, [isPrepTooltipOpen]);
 
   const reusablePhrasePatterns = React.useMemo(
     () => [
@@ -301,51 +416,103 @@ export default function FeedbackPanel({
               <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
                 Transcript Improvement Suggestions
               </h4>
-              <button
-                type="button"
-                onClick={handleCopySuggestedAnswer}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
-                aria-label={isCopied ? "Copied" : "Copy suggested answer"}
-                title={isCopied ? "Copied" : "Copy"}
-              >
-                {isCopied ? (
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    className="h-4 w-4"
-                    aria-hidden="true"
+              <div className="flex items-center gap-2">
+                <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-500">
+                  <span>Translate to</span>
+                  <select
+                    value={translateTo}
+                    onChange={(e) => setTranslateTo(e.target.value as "none" | TranslateLang)}
+                    className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-100"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="m5 13 4 4L19 7"
-                    />
-                  </svg>
-                ) : (
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    className="h-4 w-4"
-                    aria-hidden="true"
-                  >
-                    <rect x="9" y="9" width="11" height="11" rx="2" />
-                    <path d="M5 15V6a2 2 0 0 1 2-2h9" />
-                  </svg>
-                )}
-              </button>
+                    <option value="none">Original only</option>
+                    {translateOptions.map((code) => (
+                      <option key={code} value={code}>
+                        {TRANSLATE_LABEL[code]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleCopySuggestedAnswer}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
+                  aria-label={isCopied ? "Copied" : "Copy suggested answer"}
+                  title={isCopied ? "Copied" : "Copy"}
+                >
+                  {isCopied ? (
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      className="h-4 w-4"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="m5 13 4 4L19 7"
+                      />
+                    </svg>
+                  ) : (
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      className="h-4 w-4"
+                      aria-hidden="true"
+                    >
+                      <rect x="9" y="9" width="11" height="11" rx="2" />
+                      <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+                    </svg>
+                  )}
+                </button>
+              </div>
             </div>
 
             {sentenceRows.length ? (
               <div className="rounded-xl border border-slate-200 bg-slate-50/50">
                 <div className="hidden border-b border-slate-200 px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-500 md:grid md:grid-cols-2 md:gap-6 sm:px-5">
-                  <p>Transcript</p>
-                  <p>PREP Suggestions</p>
+                  <p className="text-center">Transcript</p>
+                  <div className="inline-flex items-center justify-center gap-1.5 text-center">
+                    <p>P.R.E.P suggestion</p>
+                    <span
+                      className="relative inline-flex items-center"
+                      onMouseEnter={() => setIsPrepTooltipOpen(true)}
+                      onMouseLeave={() => setIsPrepTooltipOpen(false)}
+                      onFocus={() => setIsPrepTooltipOpen(true)}
+                      onBlur={() => setIsPrepTooltipOpen(false)}
+                    >
+                      <button
+                        type="button"
+                        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 text-[10px] font-semibold normal-case text-slate-500 hover:border-slate-400 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                        aria-label="What is P.R.E.P"
+                      >
+                        i
+                      </button>
+                      <span
+                        ref={prepTooltipRef}
+                        role="tooltip"
+                        className={[
+                          "pointer-events-none absolute z-20 w-56 rounded-md bg-slate-900 px-3 py-2 text-[11px] normal-case leading-5 text-white shadow-lg transition",
+                          prepTooltipSide === "right"
+                            ? "left-full top-1/2 ml-2 -translate-y-1/2"
+                            : prepTooltipSide === "left"
+                            ? "right-full top-1/2 mr-2 -translate-y-1/2"
+                            : "left-1/2 top-full mt-2 -translate-x-1/2",
+                          isPrepTooltipOpen ? "opacity-100" : "opacity-0",
+                        ].join(" ")}
+                      >
+                        P = Point<br />
+                        R = Reason<br />
+                        E = Example<br />
+                        P = Point restated / Conclusion
+                      </span>
+                    </span>
+                  </div>
                 </div>
                 {sentenceRows.map((row, idx) => (
                   <div
@@ -362,6 +529,15 @@ export default function FeedbackPanel({
                       ].join(" ")}
                     >
                       {renderHighlightedSuggestedAnswer(row.suggested || row.original || "–")}
+                      {translateTo !== "none" && (
+                        <span className="mt-1 block text-xs leading-5 text-slate-500">
+                          {isTranslating
+                            ? "Translating..."
+                            : translationError
+                            ? translationError
+                            : translatedSentenceRows[idx] || "–"}
+                        </span>
+                      )}
                     </p>
                   </div>
                 ))}
