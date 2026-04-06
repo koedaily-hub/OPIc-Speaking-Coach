@@ -30,6 +30,88 @@ interface FeedbackPanelProps {
   suggestionsFooter?: React.ReactNode;
 }
 
+function getSuggestionLabel(text: string) {
+  const t = text.toLowerCase();
+
+  if (
+    /\b(sentence|sentences|fragment|fragments|structure|complete sentence|complete sentences)\b/.test(
+      t
+    )
+  ) {
+    return "Sentence control";
+  }
+
+  if (
+    /\b(link|linking|connector|connectors|transition|transitions|connect)\b/.test(
+      t
+    )
+  ) {
+    return "Linking";
+  }
+
+  if (/\b(detail|details|example|examples|support|supporting)\b/.test(t)) {
+    return "Support";
+  }
+
+  if (
+    /\b(clear|clarity|understand|meaning|easy to follow|listener|confus)\b/.test(
+      t
+    )
+  ) {
+    return "Clarity";
+  }
+
+  if (/\b(time|past|present|future|sequence|narration|narrative)\b/.test(t)) {
+    return "Time control";
+  }
+
+  if (/\b(paragraph|organized|organization|develop|development)\b/.test(t)) {
+    return "Organization";
+  }
+
+  if (/\b(filler|pause|pauses|fluency|hesitation|smooth)\b/.test(t)) {
+    return "Fluency";
+  }
+
+  if (/\b(grammar|tense|tenses|verb|article|agreement)\b/.test(t)) {
+    return "Grammar";
+  }
+
+  if (/\b(vocab|word choice|lexical|paraphrase)\b/.test(t)) {
+    return "Vocabulary";
+  }
+
+  return "Focus";
+}
+
+function getSuggestionLabelTone(label: string) {
+  switch (label) {
+    case "Grammar":
+      return "text-sky-700 bg-sky-50 ring-sky-100";
+    case "Linking":
+      return "text-emerald-700 bg-emerald-50 ring-emerald-100";
+    case "Clarity":
+      return "text-amber-700 bg-amber-50 ring-amber-100";
+    case "Specificity":
+    case "Support":
+      return "text-violet-700 bg-violet-50 ring-violet-100";
+    case "Vocabulary":
+      return "text-fuchsia-700 bg-fuchsia-50 ring-fuchsia-100";
+    case "Fluency":
+      return "text-teal-700 bg-teal-50 ring-teal-100";
+    case "Pronunciation":
+      return "text-rose-700 bg-rose-50 ring-rose-100";
+    case "Sentence control":
+      return "text-indigo-700 bg-indigo-50 ring-indigo-100";
+    case "Time control":
+      return "text-cyan-700 bg-cyan-50 ring-cyan-100";
+    case "Organization":
+      return "text-blue-700 bg-blue-50 ring-blue-100";
+    default:
+      return "text-slate-700 bg-slate-100 ring-slate-200";
+  }
+}
+
 export default function FeedbackPanel({
   result,
   suggestionsFooter,
@@ -57,67 +139,69 @@ export default function FeedbackPanel({
     []
   );
 
-  const renderHighlightedSuggestedAnswer = React.useCallback((text: string) => {
-    if (!text) return text;
+  const renderHighlightedSuggestedAnswer = React.useCallback(
+    (text: string) => {
+      if (!text) return text;
 
-    const matches: Array<{ start: number; end: number }> = [];
-    for (const pattern of reusablePhrasePatterns) {
-      pattern.lastIndex = 0;
-      const match = pattern.exec(text);
-      if (match && typeof match.index === "number") {
-        matches.push({ start: match.index, end: match.index + match[0].length });
+      const matches: Array<{ start: number; end: number }> = [];
+      for (const pattern of reusablePhrasePatterns) {
+        pattern.lastIndex = 0;
+        const match = pattern.exec(text);
+        if (match && typeof match.index === "number") {
+          matches.push({
+            start: match.index,
+            end: match.index + match[0].length,
+          });
+        }
       }
-    }
 
-    const selected: Array<{ start: number; end: number }> = [];
-    for (const range of matches.sort((a, b) => a.start - b.start || b.end - b.start - (a.end - a.start))) {
-      const overlaps = selected.some(
-        (picked) => !(range.end <= picked.start || range.start >= picked.end)
-      );
-      if (!overlaps) selected.push(range);
-      if (selected.length >= 3) break;
-    }
+      const selected: Array<{ start: number; end: number }> = [];
+      for (const range of matches.sort(
+        (a, b) => a.start - b.start || b.end - b.start - (a.end - a.start)
+      )) {
+        const overlaps = selected.some(
+          (picked) => !(range.end <= picked.start || range.start >= picked.end)
+        );
+        if (!overlaps) selected.push(range);
+        if (selected.length >= 3) break;
+      }
 
-    if (!selected.length) return text;
+      if (!selected.length) return text;
 
-    const nodes: React.ReactNode[] = [];
-    let cursor = 0;
-    selected.forEach((range, idx) => {
-      if (range.start > cursor) {
+      const nodes: React.ReactNode[] = [];
+      let cursor = 0;
+
+      selected.forEach((range, idx) => {
+        if (range.start > cursor) {
+          nodes.push(
+            <React.Fragment key={`plain-${idx}`}>
+              {text.slice(cursor, range.start)}
+            </React.Fragment>
+          );
+        }
+
         nodes.push(
-          <React.Fragment key={`plain-${idx}`}>{text.slice(cursor, range.start)}</React.Fragment>
+          <span
+            key={`hl-${idx}`}
+            className="font-semibold text-emerald-800"
+          >
+            {text.slice(range.start, range.end)}
+          </span>
+        );
+
+        cursor = range.end;
+      });
+
+      if (cursor < text.length) {
+        nodes.push(
+          <React.Fragment key="plain-tail">{text.slice(cursor)}</React.Fragment>
         );
       }
-      nodes.push(
-        <span
-          key={`hl-${idx}`}
-          className="underline decoration-slate-400 decoration-2 underline-offset-2"
-        >
-          {text.slice(range.start, range.end)}
-        </span>
-      );
-      cursor = range.end;
-    });
-    if (cursor < text.length) {
-      nodes.push(<React.Fragment key="plain-tail">{text.slice(cursor)}</React.Fragment>);
-    }
 
-    return nodes;
-  }, [reusablePhrasePatterns]);
-
-  const inferSuggestionLabel = React.useCallback((suggestion: string) => {
-    const text = suggestion.toLowerCase();
-
-    if (/grammar|tense|article|subject-verb|agreement/.test(text)) return "Grammar";
-    if (/link|transition|connect|connector/.test(text)) return "Linking";
-    if (/clear|clarity|understand|confus/.test(text)) return "Clarity";
-    if (/detail|example|specific|context/.test(text)) return "Specificity";
-    if (/vocab|word choice|lexical|paraphrase/.test(text)) return "Vocabulary";
-    if (/fluency|flow|hesitat|pause|smooth/.test(text)) return "Fluency";
-    if (/pronunciation|stress|intonation/.test(text)) return "Pronunciation";
-
-    return "Focus";
-  }, []);
+      return nodes;
+    },
+    [reusablePhrasePatterns]
+  );
 
   const handleCopySuggestedAnswer = React.useCallback(async () => {
     try {
@@ -196,7 +280,9 @@ export default function FeedbackPanel({
                     className="grid grid-cols-1 gap-3 px-4 py-3 sm:px-5 sm:py-4 md:grid-cols-2 md:gap-6 [&:not(:last-child)]:border-b [&:not(:last-child)]:border-slate-200"
                   >
                     <div>
-                      <p className="text-sm leading-relaxed text-slate-500">{fix.original}</p>
+                      <p className="text-sm leading-relaxed text-slate-500">
+                        {fix.original}
+                      </p>
                     </div>
 
                     <div>
@@ -221,21 +307,30 @@ export default function FeedbackPanel({
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
               {suggestions.length ? (
-                <ul className="space-y-2">
-                  {suggestions.map((suggestion, i) => (
-                    <li
-                      key={`imp-${i}`}
-                      className="text-sm leading-relaxed text-slate-700"
-                    >
-                      <span className="font-semibold text-slate-900">
-                        {inferSuggestionLabel(suggestion)}:
-                      </span>{" "}
-                      <span>{suggestion}</span>
-                    </li>
-                  ))}
+                <ul className="space-y-2.5">
+                  {suggestions.map((suggestion, i) => {
+                    const label = getSuggestionLabel(suggestion);
+                    const tone = getSuggestionLabelTone(label);
+
+                    return (
+                      <li
+                        key={`imp-${i}`}
+                        className="text-sm leading-relaxed text-slate-700"
+                      >
+                        <span
+                          className={`mr-2 inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${tone}`}
+                        >
+                          {label}
+                        </span>
+                        <span>{suggestion}</span>
+                      </li>
+                    );
+                  })}
                 </ul>
               ) : (
-                <p className="text-sm text-slate-500">No suggestions available.</p>
+                <p className="text-sm text-slate-500">
+                  No suggestions available.
+                </p>
               )}
 
               {suggestionsFooter && (
@@ -308,7 +403,9 @@ export default function FeedbackPanel({
 
                 <div className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3">
                   <p className="text-sm leading-7 text-slate-700">
-                    {renderHighlightedSuggestedAnswer(result.suggested_transcript)}
+                    {renderHighlightedSuggestedAnswer(
+                      result.suggested_transcript
+                    )}
                   </p>
                 </div>
               </div>

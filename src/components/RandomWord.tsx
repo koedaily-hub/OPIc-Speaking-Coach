@@ -34,6 +34,7 @@ type ActionButtonProps = {
   disabled: boolean;
   label: string;
   className: string;
+  isActive?: boolean;
   children: React.ReactNode;
 };
 
@@ -42,6 +43,7 @@ function ActionButton({
   disabled,
   label,
   className,
+  isActive = false,
   children,
 }: ActionButtonProps) {
   return (
@@ -53,6 +55,7 @@ function ActionButton({
         aria-label={label}
         className={[
           "inline-flex h-12 w-12 items-center justify-center rounded-full shadow-sm transition",
+          isActive ? "animate-pulse ring-2 ring-red-300/80 ring-offset-2 ring-offset-white" : "",
           disabled
             ? "cursor-not-allowed bg-slate-200 text-slate-400"
             : className,
@@ -109,13 +112,6 @@ export default function RandomWord({
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
         <div className="rounded-2xl border border-slate-200 bg-white p-3 text-center shadow-sm sm:p-4">
-          {isRecording && (
-            <div className="mb-2 flex items-center justify-center gap-2">
-              <span className="h-3 w-3 rounded-full bg-red-500 animate-pulse" />
-              <span className="text-sm font-semibold text-red-600">Recording…</span>
-            </div>
-          )}
-
           <div className="flex min-h-[96px] flex-col items-center justify-center pt-4">
             <div className="text-5xl font-bold tracking-tight text-slate-900">
               {word || "—"}
@@ -145,6 +141,7 @@ export default function RandomWord({
                 disabled={isRecording ? !canStop : !canRecord}
                 label={isRecording ? "Stop Recording" : "Start Recording"}
                 className="bg-red-500 text-white hover:bg-red-600"
+                isActive={isRecording}
               >
                 {isRecording ? <FiSquare size={20} /> : <FiMic size={20} />}
               </ActionButton>

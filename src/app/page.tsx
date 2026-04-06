@@ -60,6 +60,7 @@ type HistoryItem = {
   word: string;
   status: HistoryStatus;
   createdAt: number;
+  transcript?: string;
   feedback?: FeedbackResult;
 };
 
@@ -98,7 +99,7 @@ export default function PracticePage() {
   // STATE
   // ==============================
   const [lang, setLang] = useState<"en" | "ko">("en");
-  const [target, setTarget] = useState<TargetLevel>("Communication");
+  const [target, setTarget] = useState<TargetLevel>("IM");
 
   const [topic, setTopic] = useState(DEFAULT_TOPIC_ID);
   const [level, setLevel] = useState("");
@@ -114,6 +115,7 @@ export default function PracticePage() {
   const [showToast, setShowToast] = useState(false);
   const [isLoadingFeedback, setIsLoadingFeedback] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [activeHistoryToken, setActiveHistoryToken] = useState<number | null>(null);
   const [activeReviewedToken, setActiveReviewedToken] = useState<number | null>(null);
   const [currentWordToken, setCurrentWordToken] = useState(0);
   const [feedbackCollectionByToken, setFeedbackCollectionByToken] = useState<
@@ -263,6 +265,7 @@ export default function PracticePage() {
 
     // 🔹 history 
     setHistory([]);
+    setActiveHistoryToken(null);
     setActiveReviewedToken(null);
     setCurrentWordToken(0);
     setFeedbackCollectionByToken({});
@@ -355,6 +358,7 @@ export default function PracticePage() {
     }
 
     setCurrentWordToken(nextToken);
+    setActiveHistoryToken(null);
     setActiveReviewedToken(null);
     setAudioBlob(null);
     setFeedback(null);
@@ -487,6 +491,7 @@ const getFeedback = async () => {
     });
 
     setActiveReviewedToken(currentWordToken);
+    setActiveHistoryToken(currentWordToken);
     setFeedbackCollectionByToken((prev) => ({
       ...prev,
       [currentWordToken]: { vote: null, reasons: [], otherText: "", submitted: false },
@@ -522,11 +527,11 @@ const getFeedback = async () => {
   ).length;
 
   const restoreFeedbackFromHistory = (entry: HistoryItem) => {
-    if (!entry.feedback) return;
-    setFeedback(entry.feedback);
-    setTranscript(entry.feedback.transcript || "");
+    setActiveHistoryToken(entry.token);
+    setFeedback(entry.feedback ?? null);
+    setTranscript(entry.transcript ?? entry.feedback?.transcript ?? "");
     setIsLoadingTranscript(false);
-    setActiveReviewedToken(entry.token);
+    setActiveReviewedToken(entry.feedback ? entry.token : null);
     setTimeout(() => {
       document
         .getElementById("ai-feedback-section")
@@ -544,6 +549,7 @@ const getFeedback = async () => {
 
     setIsLoadingTranscript(true);
     setTranscript("");
+    const tokenAtRequest = currentWordToken;
 
     const sttForm = new FormData();
     sttForm.append("audio", blob);
@@ -562,7 +568,31 @@ const getFeedback = async () => {
         if (!res.ok) {
           throw new Error(data?.detail || data?.error || "Failed to get transcript");
         }
-        setTranscript(String(data?.transcript || ""));
+        const nextTranscript = String(data?.transcript || "");
+        setTranscript(nextTranscript);
+        setHistory((prev) => {
+          const idx = prev.findIndex((item) => item.token === tokenAtRequest);
+          if (idx < 0) {
+            if (!word) return prev;
+            return [
+              ...prev,
+              {
+                token: tokenAtRequest,
+                id: `h-${tokenAtRequest}`,
+                word,
+                status: "recorded",
+                createdAt: Date.now(),
+                transcript: nextTranscript,
+              },
+            ];
+          }
+          const next = [...prev];
+          next[idx] = {
+            ...next[idx],
+            transcript: nextTranscript,
+          };
+          return next;
+        });
       })
       .catch(() => {
         setTranscript("");
@@ -1034,12 +1064,12 @@ const getFeedback = async () => {
                     : item.status === "skipped"
                     ? "border-slate-200 bg-slate-100 text-slate-600"
                     : "border-slate-200 bg-white text-slate-700",
-                  item.status === "reviewed" && activeReviewedToken === item.token
+                  activeHistoryToken === item.token
                     ? "ring-2 ring-emerald-200"
                     : "",
                 ].join(" ")}
               >
-                {item.status === "reviewed" && item.feedback ? (
+                {(item.status === "recorded" || item.status === "reviewed") ? (
                   <button
                     type="button"
                     onClick={() => restoreFeedbackFromHistory(item)}
